@@ -11,6 +11,7 @@
   let root = null;
   let mountTimer = null;
   let requestId = 0;
+  let refreshTimer = null;
   const PAGE_SIZE = 12;
   let visibleCount = 0;
   let rankedVideos = [];
@@ -249,6 +250,13 @@
     }
   }
 
+  function scheduleRefresh() {
+    if (refreshTimer !== null) return;
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      if (onHome()) void refresh();
+    }, 300);
+  }
   async function refresh() {
     if (!ensureRoot()) return;
     if (!enabled) { renderDisabled(); return; }
@@ -277,8 +285,9 @@
         if (next.mode !== settings.mode) visibleCount = 0;
         settings = next;
       }
-      if (changes[HOME_KEY] || changes[SETTINGS_KEY] || changes['yt-recs-state-v1'])
-        void refresh();
+      if (changes[HOME_KEY] || changes[SETTINGS_KEY] ||
+          changes['yt-recs-state-v1'] || changes['yt-recs-collection-paused-v1'])
+        scheduleRefresh();
     });
     document.addEventListener('yt-navigate-finish', () => {
       if (!onHome()) cleanUp();
