@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>yt-recs-but-good</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="mark">↗</span><span>yt-recs-but-good</span></div>
+    <span class="privacy">LOCAL ONLY</span>
+  </header>
+  <main>
+    <section class="intro">
+      <div class="eyebrow">YOUR ALTERNATIVE FEED</div>
+      <h1>Find something worth watching.</h1>
+      <p>Recommendations from your own feedback, not popularity.</p>
+    </section>
+
+    <div class="stats" aria-label="Local dataset statistics">
+      <div><strong id="likes-count">0</strong><span>likes</span></div>
+      <div><strong id="candidates-count">0</strong><span>candidates</span></div>
+      <div><strong id="unseen-count">0</strong><span>unseen</span></div>
+    </div>
+
+    <section id="onboarding" class="onboarding" hidden>
+      <h2>Build your discovery pool</h2>
+      <p>Open your subscriptions feed and scroll to collect videos. Visit Liked videos to seed your tastes. This extension only learns from pages you visit.</p>
+      <div class="actions">
+        <button id="open-subs" class="primary">Browse subscriptions ↗</button>
+        <button id="open-likes" class="secondary">Import liked videos ↗</button>
+      </div>
+    </section>
+
+    <section class="controls">
+      <div class="section-heading">
+        <h2>Recommendations</h2>
+        <button id="toggle-options" class="text-button" aria-expanded="false">Tune <span aria-hidden="true">⌄</span></button>
+      </div>
+      <div class="tabs" role="group" aria-label="Recommendation strategy">
+        <button data-mode="personalized" class="selected" aria-pressed="true">For you</button>
+        <button data-mode="explore" aria-pressed="false">Explore</button>
+        <button data-mode="recent" aria-pressed="false">Recent</button>
+      </div>
+      <div id="options" class="options" hidden>
+        <label for="diversity">Diversity <output id="diversity-value">55%</output></label>
+        <input id="diversity" type="range" min="0" max="100" value="55">
+        <label for="exploration">Exploration <output id="exploration-value">15%</output></label>
+        <input id="exploration" type="range" min="0" max="100" value="15">
+        <label for="half-life">Preference half-life</label>
+        <select id="half-life">
+          <option value="30">30 days</option>
+          <option value="90" selected>90 days</option>
+          <option value="365">365 days</option>
+          <option value="3650">Effectively static</option>
+        </select>
+        <label class="checkbox"><input id="show-seen" type="checkbox"> Include watched and liked videos</label>
+      </div>
+    </section>
+
+    <section id="results" class="results" aria-live="polite"></section>
+    <section class="footer-tools">
+      <button id="export-data" class="text-button">Export local data</button>
+      <button id="reset-data" class="text-button danger">Delete data</button>
+    </section>
+    <p class="disclaimer">Use YouTube's Like button as explicit feedback. Popup ratings affect this extension only. Videos are collected when you browse; no upload polling or Google login is used.</p>
+    <p class="error" id="error" role="alert" hidden></p>
+  </main>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
