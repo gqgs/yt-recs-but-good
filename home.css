@@ -103,3 +103,6 @@ html.ytrbg-home-active ytd-browse[page-subtype="home"] ytd-rich-grid-renderer {
 #ytrbg-home .ytrbg-load-more{border:1px solid var(--yt-spec-10-percent-layer,#494949);background:transparent;color:inherit;padding:10px 18px;border-radius:20px;font-size:13px}
 #ytrbg-home .ytrbg-load-more:hover{background:var(--yt-spec-10-percent-layer,#333)}
 #ytrbg-home .ytrbg-scroll-sentinel{height:1px;width:100%}
+
+#ytrbg-home .ytrbg-channel{font-size:13px;color:var(--yt-spec-text-secondary,#aaa);line-height:1.42;font-weight:500;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#ytrbg-home .ytrbg-meta:empty{display:none}
