@@ -11,7 +11,7 @@ const { extractCard, videoId, validTitle } = global.YTRBGCardExtractor;
 function el(text, attrs = {}) {
   return { textContent: text, href: attrs.href, getAttribute: key => attrs[key] || null };
 }
-function fakeCard({ title, titleAttrs = {}, watchHref, promoted = false, badge = false, channel = 'Linux Foundation' }) {
+function fakeCard({ title, titleAttrs = {}, watchHref, promoted = false, badge = false, channel = 'Linux Foundation', metadata = [] }) {
   const titleNode = title === undefined ? null : el(title, titleAttrs);
   const watchNode = el('Watch', { href: watchHref || '/watch?v=abcdefghijk' });
   const channelNode = el(channel, { href: '/@LinuxFoundation' });
@@ -25,7 +25,7 @@ function fakeCard({ title, titleAttrs = {}, watchHref, promoted = false, badge =
       if (selector.includes('channel-name') || selector.includes('metadata-text a')) return channelNode;
       return null;
     },
-    querySelectorAll() { return []; }
+    querySelectorAll() { return metadata.map(text => el(text)); }
   };
 }
 
@@ -77,4 +77,24 @@ test('extracts the modern channel metadata row and watch-progress marker', () =>
   const parsed = extractCard(fixture);
   assert.equal(parsed.channel, 'The Linux Foundation');
   assert.equal(parsed.hasResume, true);
+});
+
+test('captures views and upload age separately from modern combined metadata rows', () => {
+  const result = extractCard(fakeCard({
+    title: 'Understanding nonlinear dynamics',
+    metadata: ['1.4M views · 3 weeks ago']
+  }));
+  assert.equal(result.viewCountText, '1.4M views');
+  assert.equal(result.publishedText, '3 weeks ago');
+});
+test('captures classic metadata and leaves missing values absent', () => {
+  const withMetadata = extractCard(fakeCard({
+    title: 'Mathematics of black holes',
+    metadata: ['12,403 views', 'Streamed 2 days ago']
+  }));
+  assert.equal(withMetadata.viewCountText, '12,403 views');
+  assert.equal(withMetadata.publishedText, 'Streamed 2 days ago');
+  const without = extractCard(fakeCard({ title: 'Mathematics of black holes' }));
+  assert.equal(without.viewCountText, '');
+  assert.equal(without.publishedText, '');
 });
