@@ -47,15 +47,17 @@ test('records candidates, ranks on worker, and applies explicit feedback', async
   }] });
   await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [{
     id: VID_B, title: 'Linux kernel optimization', channel: 'Linux Lab', channelId: CHANNEL,
-    publishedAt: '2026-11-06T00:00:00Z'
+    publishedAt: '2026-11-06T00:00:00Z', viewCount: '267400'
   }] });
   const before = await message({ type: 'GET_RECOMMENDATIONS' });
   assert.equal(before.ok, true);
   assert.equal(before.result.counts.likes, 1);
   assert.equal(before.result.recommendations[0].id, VID_B);
+  assert.match(before.result.recommendations[0].metadataLine, /267\\.4K views|267K views/);
   const saved = await message({ type: 'GET_STATE' });
   assert.equal(saved.state.items[VID_B].publishedAt, Date.parse('2026-11-06T00:00:00Z'));
   assert.equal(saved.state.items[VID_B].subscribed, true);
+  assert.equal(saved.state.items[VID_B].viewCount, 267400);
   await message({ type: 'MARK_SEEN', id: VID_B });
   const after = await message({ type: 'GET_RECOMMENDATIONS' });
   assert.equal(after.result.recommendations.length, 0);
@@ -105,3 +107,23 @@ test('OAuth sync requires an explicitly configured application', async () => {
   assert.match(response.error, /OAuth.*client ID/);
 });
 test.after(() => { globalThis.chrome = oldChrome; });
+
+test('records view metadata discovered from page cards and prefers newer API statistics', async () => {
+  const ID = 'abcefg12345';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [{
+    id: ID, title: 'Performance talk', channel: 'Systems', 
+    publishedText: '2 days ago', viewCountText: '1.2K views'
+  }] });
+  let state = (await message({ type: 'GET_STATE' })).state;
+  assert.equal(state.items[ID].viewCountText, '1.2K views');
+  assert.ok(state.items[ID].publishedAt > 0);
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [{
+    id: ID, title: 'Performance talk', channel: 'Systems',
+    viewCount: '50234', publishedAt: '2025-05-01T00:00:00Z'
+  }] });
+  state = (await message({ type: 'GET_STATE' })).state;
+  assert.equal(state.items[ID].viewCount, 50234);
+  assert.equal(state.items[ID].publishedAt, Date.parse('2025-05-01T00:00:00Z'));
+  const result = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.match(result.result.recommendations.find(v => v.id === ID).metadataLine, /50\\.2K views/);
+});
