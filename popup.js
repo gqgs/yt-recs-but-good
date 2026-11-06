@@ -3,12 +3,16 @@ import { formatMetadataLine } from './lib/video-metadata.js';
 const SETTINGS_KEY = 'yt-recs-settings-v1';
 const HOME_KEY = 'yt-recs-home-enabled-v1';
 const API_SYNC_KEY = 'yt-recs-api-sync-v1';
+const REFRESH_KEY = 'yt-recs-candidate-refresh-v1';
 const defaults = { mode: 'personalized', diversity: 55, exploration: 15,
-  halfLifeDays: 90, showSeen: false, discoveryOnly: true, limit: 30 };
+  halfLifeDays: 90, showSeen: false, discoveryOnly: true, limit: 30,
+  autoRefreshEnabled: true, refreshTtlMinutes: 60 };
 let settings = { ...defaults };
 let snapshot = { counts: { liked: 0, candidates: 0, unseen: 0 }, recommendations: [], paused: false };
 let resetting = false;
 let refreshTimer = null;
+let lastApiSyncStatus = null;
+const OAUTH_STALE_MS = 150_000;
 const $ = id => document.getElementById(id);
 
 function request(msg) {
@@ -21,12 +25,24 @@ function request(msg) {
 function renderSyncStatus(status) {
   const area = $('api-sync-status');
   if (!status) return;
+  lastApiSyncStatus = status;
   const counts = status.counts || {};
   const numbers = [counts.likes !== undefined ? counts.likes + ' likes' : null,
     counts.subscriptions !== undefined ? counts.subscriptions + ' channels' : null,
     counts.uploads !== undefined ? counts.uploads + ' uploads' : null].filter(Boolean);
-  area.textContent = (status.message || '') + (numbers.length ? ' (' + numbers.join(', ') + ')' : '');
-  $('api-sync').disabled = !['complete', 'error'].includes(status.phase);
+  const elapsed = Date.now() - (Number(status.updatedAt) || Date.now());
+  // A worker can be terminated during OAuth while its last persisted status
+  // remains "auth". Do not leave the popup's Sync button disabled forever.
+  const staleAuth = status.phase === 'auth' && elapsed >= OAUTH_STALE_MS;
+  if (staleAuth) {
+    area.textContent = 'Google authorization did not complete. Check for a hidden Brave ' +
+      'sign-in window and verify the exact registered redirect URI. Close the old window before retrying.';
+  } else {
+    area.textContent = (status.message || '') +
+      (numbers.length ? ' (' + numbers.join(', ') + ')' : '') +
+      (status.phase === 'auth' ? ' · ' + Math.floor(elapsed / 1000) + 's elapsed' : '');
+  }
+  $('api-sync').disabled = !staleAuth && !['complete', 'error'].includes(status.phase);
 }
 function showError(error) {
   const el = $('error');
@@ -63,6 +79,9 @@ function syncOptions() {
   $('diversity').value = settings.diversity;
   $('exploration').value = settings.exploration;
   $('half-life').value = String(settings.halfLifeDays);
+  $('auto-refresh-enabled').checked = settings.autoRefreshEnabled !== false;
+  $('refresh-ttl').value = String([15, 30, 60, 120, 360, 1440].includes(Number(settings.refreshTtlMinutes))
+    ? Number(settings.refreshTtlMinutes) : 60);
   $('show-seen').checked = settings.showSeen;
   $('discovery-only').checked = settings.discoveryOnly !== false;
   $('diversity-value').textContent = settings.diversity + '%';
@@ -122,7 +141,15 @@ function renderVideo(video, index) {
   card.setAttribute('aria-label', 'Recommendation ' + (index + 1) + ': ' + video.title);
   return card;
 }
+function renderCandidateRefreshStatus(refresh = {}) {
+  const button = $('refresh-now');
+  button.disabled = snapshot.paused || refresh.phase === 'running';
+  const status = $('candidate-refresh-status');
+  status.textContent = refresh.label || 'Never updated';
+  status.title = refresh.message || '';
+}
 function render() {
+  renderCandidateRefreshStatus(snapshot.refresh);
   const counts = snapshot.counts || { liked: 0, candidates: 0, unseen: 0 };
   $('likes-count').textContent = String(counts.liked || 0);
   $('candidates-count').textContent = String(counts.candidates || 0);
@@ -226,15 +253,28 @@ async function initialize() {
     chrome.storage.local.set({ [HOME_KEY]: $('replace-home').checked }).catch(showError);
   });
   $('open-home').addEventListener('click', () => open('https://www.youtube.com/'));
+  const redirect = chrome.identity.getRedirectURL('oauth2');
+  $('oauth-redirect-url').textContent = redirect;
+  $('copy-oauth-redirect').addEventListener('click', () => {
+    navigator.clipboard.writeText(redirect).then(() => {
+      $('copy-oauth-redirect').textContent = 'Copied';
+    }, showError);
+  });
   const syncStatus = (await chrome.storage.local.get(API_SYNC_KEY))[API_SYNC_KEY];
   if (syncStatus) renderSyncStatus(syncStatus);
+  // Only runs while the extension popup is open. The background worker still
+  // owns the operation, but the UI now detects orphaned persisted auth state.
+  setInterval(() => {
+    if (lastApiSyncStatus?.phase === 'auth') renderSyncStatus(lastApiSyncStatus);
+  }, 5000);
   $('api-sync').addEventListener('click', async () => {
     const btn = $('api-sync');
     btn.disabled = true;
     try {
       const response = await request({ type: 'API_SYNC_START' });
       $('api-sync-status').textContent = response.result.started
-        ? 'Google authorization requested…' : 'An import is already running.';
+        ? 'Opening Google authorization window… Check other Brave windows.'
+        : 'An import is already running. Check for an open authorization window.';
     } catch (error) {
       showError(error);
       btn.disabled = false;
@@ -267,6 +307,29 @@ async function initialize() {
   $('discovery-only').addEventListener('change', () => {
     settings.discoveryOnly = $('discovery-only').checked;
     void persistSettings(); render();
+  });
+  $('auto-refresh-enabled').addEventListener('change', () => {
+    settings.autoRefreshEnabled = $('auto-refresh-enabled').checked;
+    void persistSettings();
+  });
+  $('refresh-ttl').addEventListener('change', () => {
+    settings.refreshTtlMinutes = Number($('refresh-ttl').value);
+    void persistSettings();
+  });
+  $('refresh-now').addEventListener('click', async () => {
+    $('refresh-now').disabled = true;
+    try {
+      const response = await request({ type: 'REFRESH_CANDIDATES', force: true, interactive: true });
+      if (!response.result.started && response.result.reason === 'needs_setup') {
+        $('candidate-refresh-status').textContent = 'Set up YouTube API OAuth in manifest.json first.';
+      } else if (response.result.started) {
+        $('candidate-refresh-status').textContent = 'Checking subscribed channels…';
+      }
+    } catch (error) {
+      showError(error);
+    } finally {
+      scheduleRefresh();
+    }
   });
   $('import-history').addEventListener('click', async () => {
     const button = $('import-history');
@@ -346,7 +409,8 @@ async function initialize() {
     if (area !== 'local') return;
     if (changes[HOME_KEY]) $('replace-home').checked = changes[HOME_KEY].newValue !== false;
     if (changes[API_SYNC_KEY]) renderSyncStatus(changes[API_SYNC_KEY].newValue);
-    if (changes['yt-recs-state-v1'] || changes['yt-recs-collection-paused-v1']) scheduleRefresh();
+    if (changes['yt-recs-state-v1'] || changes['yt-recs-collection-paused-v1'] ||
+        changes[REFRESH_KEY]) scheduleRefresh();
   });
   await refresh();
 }

@@ -1,11 +1,14 @@
 import { relativeAgeDays, rankVideos } from './lib/recommender.js';
 import { formatMetadataLine } from './lib/video-metadata.js';
 import { fetchLikedVideos, fetchSubscriptions, fetchUploads } from './lib/api-sync.js';
+import { normalizeTtlMinutes, shouldRefresh, formatRefreshAge } from './lib/refresh-policy.js';
+import { getGoogleAccessToken, clearGoogleAccessToken, configuredGoogleClientId } from './lib/google-auth.js';
 
 // Privacy-first persistence and event log. All activity remains in chrome.storage.local.
 const KEY = 'yt-recs-state-v1';
 const SETTINGS_KEY = 'yt-recs-settings-v1';
 const API_SYNC_KEY = 'yt-recs-api-sync-v1';
+const REFRESH_KEY = 'yt-recs-candidate-refresh-v1';
 const PAUSED_KEY = 'yt-recs-collection-paused-v1';
 const MAX_ITEMS = 4000;
 const MAX_EVENTS = 1500;
@@ -225,10 +228,19 @@ async function syncStatus(phase, message, counts = {}) {
   } });
 }
 async function importVideos(source, videos) {
-  for (let i = 0; i < videos.length; i += 120) {
-    const batch = videos.slice(i, i + 120);
-    await enqueueWrite(state => process(state, { type: 'CANDIDATES', source, videos: batch }));
-  }
+  if (!videos.length) return 0;
+  // A single serialized storage transaction avoids rebuilding the Home feed
+  // dozens of times while importing hundreds of subscribed-channel uploads.
+  return enqueueWrite(state => {
+    let newCount = 0;
+    for (let i = 0; i < videos.length; i += 120) {
+      const batch = videos.slice(i, i + 120);
+      const newIds = new Set(batch.filter(v => !state.items[v.id]).map(v => v.id));
+      newCount += newIds.size;
+      process(state, { type: 'CANDIDATES', source, videos: batch });
+    }
+    return newCount;
+  });
 }
 async function importSubscriptions(subs) {
   await enqueueWrite(state => {
@@ -246,11 +258,16 @@ async function importSubscriptions(subs) {
   });
 }
 async function runApiSync() {
+  // Initiate launchWebAuthFlow synchronously from the UI-triggered message.
+  // Do not await chrome.storage before asking Brave to open the auth window.
+  const authorization = getGoogleAccessToken({ interactive: true });
+  // Attach a rejection observer immediately. A fast OAuth error can otherwise
+  // reject before the asynchronous storage-status write completes.
+  void authorization.catch(() => {});
   try {
-    await syncStatus('auth', 'Authorizing with your Google account…');
-    const result = await chrome.identity.getAuthToken({ interactive: true });
-    const token = typeof result === 'string' ? result : result?.token;
-    if (!token) throw new Error('Google authorization did not return a token.');
+    await syncStatus('auth',
+      'Waiting for Google authorization. Look for a separate Brave sign-in window.');
+    const token = await authorization;
     await syncStatus('likes', 'Importing your most recent 1,000 liked videos…');
     const likes = await fetchLikedVideos(token);
     await importVideos('liked', likes);
@@ -278,12 +295,124 @@ async function runApiSync() {
       likes: likes.length, subscriptions: subs.length, uploads: imported.videos,
       channelsScanned: imported.channels
     });
+    await saveRefreshStatus({
+      phase: 'ready', lastSuccessAt: Date.now(),
+      message: 'Imported uploads from ' + imported.channels + ' subscribed channels',
+      channels: imported.channels, newVideos: imported.videos
+    });
   } catch (error) {
     await syncStatus('error', String(error?.message || error));
   }
 }
+function configuredOAuth() {
+  return Boolean(configuredGoogleClientId(chrome.runtime.getManifest()));
+}
+async function saveRefreshStatus(patch) {
+  const saved = (await chrome.storage.local.get(REFRESH_KEY))[REFRESH_KEY] || {};
+  const next = { ...saved, ...patch };
+  await chrome.storage.local.set({ [REFRESH_KEY]: next });
+  return next;
+}
+function refreshSummary(status, configured, paused, now = Date.now()) {
+  if (paused) return 'Collection paused';
+  if (!configured) return 'Connect Google API in the extension popup for new uploads';
+  if (status?.phase === 'running') return 'Checking new subscribed uploads…';
+  if (status?.phase === 'needs_auth') return 'Authorize YouTube API from the extension popup';
+  if (status?.phase === 'error') return 'Refresh failed · ' + String(status.message || 'Try again').slice(0, 100);
+  const age = formatRefreshAge(status?.lastSuccessAt || 0, now);
+  if (status?.lastSuccessAt) return age +
+    (Number.isFinite(status.newVideos) ? ' · ' + status.newVideos + ' newly found' : '');
+  return 'Never synced · authorize YouTube API to discover new uploads';
+}
+async function refreshDetails(paused = false) {
+  const status = (await chrome.storage.local.get(REFRESH_KEY))[REFRESH_KEY] || {};
+  return { ...status, configured: configuredOAuth(), paused,
+    label: refreshSummary(status, configuredOAuth(), paused) };
+}
+
+// A homepage visit triggers only a non-interactive, TTL-guarded refresh.
+// Explicit user clicks can force a refresh and request Google authorization.
+let candidateRefreshPromise = null;
+let refreshKickoffPromise = null;
+async function performCandidateRefresh(interactive) {
+  try {
+    const token = await getGoogleAccessToken({ interactive });
+    const subscriptions = await fetchSubscriptions(token);
+    await importSubscriptions(subscriptions);
+    const newUploads = [];
+    const summary = await fetchUploads(token, subscriptions, {
+      maxChannels: 200, maxPerChannel: 5, includeStatistics: false,
+      onBatch: async videos => { newUploads.push(...videos); }
+    });
+    const newlyFound = await importVideos('subscriptions', newUploads);
+    const paused = (await chrome.storage.local.get(PAUSED_KEY))[PAUSED_KEY] === true;
+    if (paused) return;
+    await saveRefreshStatus({
+      phase: 'ready', message: 'Subscribed uploads refreshed',
+      lastSuccessAt: Date.now(), channels: summary.channels,
+      newVideos: newlyFound
+    });
+  } catch (error) {
+    const paused = (await chrome.storage.local.get(PAUSED_KEY))[PAUSED_KEY] === true;
+    if (paused) return;
+    const message = String(error?.message || error);
+    await saveRefreshStatus({
+      phase: !interactive && /auth|sign.?in|token|consent|not granted|login_required|interaction_required|access_denied|silent/i.test(message)
+        ? 'needs_auth' : 'error', message: message.slice(0, 180)
+    });
+  }
+}
+function startCandidateRefresh({ force = false, interactive = false } = {}) {
+  if (refreshKickoffPromise) return refreshKickoffPromise;
+  const kickoff = (async () => {
+    if (candidateRefreshPromise || apiSyncPromise) return { started: false, reason: 'running' };
+    const keys = [REFRESH_KEY, SETTINGS_KEY, PAUSED_KEY];
+    const saved = await chrome.storage.local.get(keys);
+    const last = saved[REFRESH_KEY] || {};
+    const settings = saved[SETTINGS_KEY] || {};
+    const paused = saved[PAUSED_KEY] === true;
+    if (paused) return { started: false, reason: 'paused' };
+    if (!force && !shouldRefresh({
+      now: Date.now(), lastSuccessAt: last.lastSuccessAt,
+      lastAttemptAt: last.lastAttemptAt,
+      ttlMinutes: normalizeTtlMinutes(settings.refreshTtlMinutes),
+      enabled: settings.autoRefreshEnabled !== false
+    })) return { started: false, reason: 'fresh-or-throttled' };
+    if (!configuredOAuth()) {
+      if (last.phase !== 'needs_setup') await saveRefreshStatus({
+        phase: 'needs_setup', message: 'Set up a YouTube Data API OAuth client in manifest.json'
+      });
+      return { started: false, reason: 'needs_setup' };
+    }
+    await saveRefreshStatus({
+      phase: 'running', message: 'Checking subscribed uploads',
+      lastAttemptAt: Date.now()
+    });
+    candidateRefreshPromise = performCandidateRefresh(interactive)
+      .finally(() => { candidateRefreshPromise = null; });
+    return { started: true };
+  })();
+  refreshKickoffPromise = kickoff;
+  // Observe both resolve and reject so no orphaned promise can create an
+  // unhandled rejection after a service-worker event has returned.
+  void kickoff.then(() => {
+    if (refreshKickoffPromise === kickoff) refreshKickoffPromise = null;
+  }, () => {
+    if (refreshKickoffPromise === kickoff) refreshKickoffPromise = null;
+  });
+  return kickoff;
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (!msg || typeof msg.type !== 'string') return false;
+  if (msg.type === 'REFRESH_CANDIDATES') {
+    startCandidateRefresh({
+      force: msg.force === true,
+      interactive: msg.force === true && msg.interactive === true
+    }).then(result => reply({ ok: true, result }),
+      error => reply({ ok: false, error: String(error) }));
+    return true;
+  }
   if (msg.type === 'HISTORY_IMPORT') {
     importBrowserHistory().then(result => reply({ ok: true, result }),
       error => reply({ ok: false, error: String(error) }));
@@ -292,10 +421,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (msg.type === 'API_SYNC_START') {
     const oauth = chrome.runtime.getManifest().oauth2?.client_id || '';
     if (!oauth || oauth.includes('REPLACE_WITH')) {
-      reply({ ok: false, error: 'Configure a Google OAuth Chrome Extension client ID in manifest.json first. See README.md.' });
+      reply({ ok: false, error: 'Configure a Google Web application OAuth client ID in manifest.json and register the chromiumapp.org redirect. See README.md.' });
       return false;
     }
-    if (apiSyncPromise) {
+    if (apiSyncPromise || candidateRefreshPromise || refreshKickoffPromise) {
       reply({ ok: true, result: { started: false, running: true } });
       return false;
     }
@@ -326,7 +455,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         ...video, metadataLine: formatMetadataLine(video)
       }));
       return { counts: { liked, candidates, unseen }, recommendations,
-        paused: stored[PAUSED_KEY] === true };
+        paused: stored[PAUSED_KEY] === true,
+        refresh: await refreshDetails(stored[PAUSED_KEY] === true) };
     }).then(result => reply({ ok: true, result }),
       error => reply({ ok: false, error: String(error) }));
     return true;
@@ -358,7 +488,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       return { recommendations: rankVideos(state.items, settings).map(video => ({
         ...video, metadataLine: formatMetadataLine(video)
       })),
-        paused,
+        paused, refresh: await refreshDetails(paused),
         counts: { likes, unseen, candidates: items.filter(v => v.candidate).length } };
     }).then(result => reply({ ok: true, result }),
       e => reply({ ok: false, error: String(e) }));
@@ -372,7 +502,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         // Persist the pause before removing the state so a Home-page MutationObserver
         // cannot immediately re-import candidates while the user clears them.
         await chrome.storage.local.set({ [PAUSED_KEY]: true });
-        await chrome.storage.local.remove(KEY);
+        await chrome.storage.local.remove([KEY, REFRESH_KEY]);
+        await clearGoogleAccessToken();
         return { reset: true, paused: true };
       }
       const state = await readState();
@@ -391,6 +522,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         }
       }
       await saveState(state);
+      // Clearing candidate records invalidates the previous refresh TTL.
+      await chrome.storage.local.remove(REFRESH_KEY);
       return { removed, preservedPreferences: true };
     });
     queue = job.catch(() => {});
@@ -401,6 +534,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (msg.type === 'COLLECTION_RESUME') {
     const job = queue.then(async () => {
       await chrome.storage.local.set({ [PAUSED_KEY]: false });
+      await chrome.storage.local.remove(REFRESH_KEY);
       return { paused: false };
     });
     queue = job.catch(() => {});

@@ -5,8 +5,14 @@ const VID_A = 'abcdefghijk';
 const VID_B = 'lmnopqrstuv';
 const CHANNEL = 'UC' + 'z'.repeat(22);
 const state = {};
+const session = {};
 let onMessage;
+let oauthConfigured = false;
+let authGranted = false;
+const identityCalls = [];
+let apiCalls = 0;
 const oldChrome = globalThis.chrome;
+const oldFetch = globalThis.fetch;
 globalThis.chrome = {
   storage: { local: {
     async get(keys) {
@@ -17,7 +23,13 @@ globalThis.chrome = {
       return result;
     },
     async set(values) { Object.assign(state, values); },
-    async remove(key) { delete state[key]; }
+    async remove(keys) {
+      for (const key of Array.isArray(keys) ? keys : [keys]) delete state[key];
+    }
+  }, session: {
+    async get(key) { return { [key]: session[key] }; },
+    async set(values) { Object.assign(session, values); },
+    async remove(key) { delete session[key]; }
   }},
   permissions: { async contains() { return true; } },
   history: {
@@ -27,10 +39,59 @@ globalThis.chrome = {
       { url: 'https://example.org/private', lastVisitTime: 4000 }
     ]; }
   },
+  identity: {
+    getRedirectURL(path) {
+      assert.equal(path, 'oauth2');
+      return 'https://abcdefghijklmno.chromiumapp.org/oauth2';
+    },
+    async launchWebAuthFlow({ interactive, url }) {
+      identityCalls.push(interactive);
+      const request = new URL(url);
+      assert.equal(request.origin, 'https://accounts.google.com');
+      assert.equal(request.searchParams.get('response_type'), 'token');
+      assert.equal(request.searchParams.get('redirect_uri'),
+        'https://abcdefghijklmno.chromiumapp.org/oauth2');
+      if (!interactive && !authGranted) throw new Error('OAuth approval not granted');
+      authGranted = true;
+      return 'https://abcdefghijklmno.chromiumapp.org/oauth2#' +
+        new URLSearchParams({
+          access_token: 'testing-token', token_type: 'Bearer',
+          expires_in: '3600', state: request.searchParams.get('state')
+        }).toString();
+    }
+  },
   runtime: {
-    getManifest() { return { oauth2: { client_id: 'REPLACE_WITH_OAUTH_CLIENT_ID.apps.googleusercontent.com' } }; },
+    getManifest() { return { oauth2: { client_id: oauthConfigured ?
+      'test.apps.googleusercontent.com' : 'REPLACE_WITH_OAUTH_CLIENT_ID.apps.googleusercontent.com' } }; },
     onMessage: { addListener(fn) { onMessage = fn; } }
   }
+};
+// Simulate the official API with no external requests or credentials.
+globalThis.fetch = async (url, options) => {
+  const parsed = new URL(url);
+  if (parsed.hostname !== 'www.googleapis.com' ||
+      options?.headers?.Authorization !== 'Bearer testing-token') {
+    throw new Error('Unexpected network request during test');
+  }
+  apiCalls++;
+  if (parsed.pathname.endsWith('/subscriptions')) return {
+    ok: true, json: async () => ({ items: [{
+      snippet: { resourceId: { channelId: CHANNEL }, title: 'Linux Lab' }
+    }] })
+  };
+  if (parsed.pathname.endsWith('/channels')) return {
+    ok: true, json: async () => ({ items: [{
+      id: CHANNEL, contentDetails: { relatedPlaylists: { uploads: 'UU' + 'z'.repeat(22) } }
+    }] })
+  };
+  if (parsed.pathname.endsWith('/playlistItems')) return {
+    ok: true, json: async () => ({ items: [{
+      snippet: { title: 'Brand-new systems talk', channelTitle: 'Linux Lab',
+        videoOwnerChannelId: CHANNEL, publishedAt: '2026-11-06T00:00:00Z' },
+      contentDetails: { videoId: 'newvid12345' }
+    }] })
+  };
+  throw new Error('Unexpected endpoint: ' + parsed.pathname);
 };
 await import('../background.js');
 
@@ -161,7 +222,70 @@ test('full reset pauses collection and cannot immediately reimport old candidate
   assert.equal(resumedHome.result.paused, false);
   assert.equal(resumedHome.result.recommendations[0].id, 'aabbccdd125');
 });
-test.after(() => { globalThis.chrome = oldChrome; });
+async function pollRefresh(phase) {
+  for (let i = 0; i < 80; i++) {
+    const response = await message({ type: 'GET_POPUP_DATA' });
+    if (response.result.refresh.phase === phase) return response.result.refresh;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  throw new Error('Candidate refresh did not reach ' + phase);
+}
+
+test('automatic refresh without an OAuth client reports setup requirements', async () => {
+  const result = await message({ type: 'REFRESH_CANDIDATES' });
+  assert.equal(result.result.started, false);
+  assert.equal(result.result.reason, 'needs_setup');
+  const status = await message({ type: 'GET_POPUP_DATA' });
+  assert.equal(status.result.refresh.configured, false);
+  assert.match(status.result.refresh.label, /Connect Google API/);
+  assert.equal(identityCalls.length, 0);
+});
+test('automatic refresh never opens interactive authentication', async () => {
+  oauthConfigured = true;
+  authGranted = false;
+  const result = await message({ type: 'REFRESH_CANDIDATES' });
+  assert.equal(result.result.started, true);
+  const refresh = await pollRefresh('needs_auth');
+  assert.match(refresh.label, /Authorize YouTube API/);
+  assert.deepEqual(identityCalls, [false]);
+  const second = await message({ type: 'REFRESH_CANDIDATES' });
+  assert.equal(second.result.started, false);
+  assert.equal(second.result.reason, 'fresh-or-throttled');
+});
+test('manual refresh authorizes explicitly, adds new videos and applies 1h TTL', async () => {
+  const triggered = await message({
+    type: 'REFRESH_CANDIDATES', force: true, interactive: true
+  });
+  assert.equal(triggered.result.started, true);
+  const status = await pollRefresh('ready');
+  assert.equal(status.channels, 1);
+  assert.equal(status.newVideos, 1);
+  assert.ok(status.lastSuccessAt > 0);
+  assert.equal(identityCalls.at(-1), true);
+  assert.ok(apiCalls >= 3);
+  const snapshot = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(snapshot.result.refresh.phase, 'ready');
+  assert.equal(snapshot.result.recommendations.some(v => v.id === 'newvid12345'), true);
+  const callsBefore = apiCalls;
+  const again = await message({ type: 'REFRESH_CANDIDATES' });
+  assert.equal(again.result.started, false);
+  assert.equal(again.result.reason, 'fresh-or-throttled');
+  assert.equal(apiCalls, callsBefore);
+});
+test('full reset clears last refresh and prevents automatic collection until resumed', async () => {
+  const cleared = await message({ type: 'RESET' });
+  assert.equal(cleared.ok, true);
+  const skipped = await message({ type: 'REFRESH_CANDIDATES' });
+  assert.equal(skipped.result.reason, 'paused');
+  await message({ type: 'COLLECTION_RESUME' });
+  const after = await message({ type: 'GET_POPUP_DATA' });
+  assert.equal(after.result.refresh.lastSuccessAt, undefined);
+  assert.deepEqual(session, {});
+});
+test.after(() => {
+  globalThis.chrome = oldChrome;
+  globalThis.fetch = oldFetch;
+});
 
 test('records view metadata discovered from page cards and prefers newer API statistics', async () => {
   const ID = 'abcefg12345';

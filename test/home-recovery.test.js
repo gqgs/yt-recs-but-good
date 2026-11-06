@@ -7,7 +7,7 @@ const styles = readFileSync(new URL('../home.css', import.meta.url), 'utf8');
 const content = readFileSync(new URL('../content.js', import.meta.url), 'utf8');
 
 test('empty Home distinguishes paused collection from an empty recommendation pool', () => {
-  assert.match(home, /function render\(\{ recommendations, counts, paused = false \}\)/);
+  assert.match(home, /function render\(\{ recommendations, counts, paused = false, refresh = \{\} \}\)/);
   assert.match(home, /'Collection paused after reset'/);
   assert.match(home, /'Resume and browse subscriptions'/);
   assert.match(home, /send\(\{ type: 'COLLECTION_RESUME' \}\)/);
@@ -25,4 +25,13 @@ test('resuming collection clears stale in-page deduplication state', () => {
   assert.match(content, /changes\['yt-recs-collection-paused-v1'\]/);
   assert.match(content, /seenCards\.clear\(\)/);
   assert.match(content, /scheduleScan\(\)/);
+});
+
+test('Home checks the candidate TTL without interactive login on page visits', () => {
+  assert.match(home, /requestCandidateRefresh\(false\)/);
+  assert.match(home, /document\.addEventListener\('visibilitychange'/);
+  assert.match(home, /REFRESH_CANDIDATES', force, interactive: force/);
+  assert.match(home, /button\('Refresh uploads'/);
+  assert.match(home, /refresh\.label/);
+  assert.match(styles, /\.ytrbg-refresh-status/);
 });

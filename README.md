@@ -21,22 +21,106 @@ You can also start from scratch: use YouTube's normal **Like** button on videos 
 
 **Expected behavior:** Use actual likes as explicit feedback when possible. A watched video is not automatically treated as liked; ignoring or skipping a video isn't automatically treated as dislike. If you don't like a recommendation, choose **Not for me**. Use **Seen** to hide something already watched elsewhere.
 
+## Automatic candidate refresh (default: 1 hour)
+
+The personalized YouTube Home now **checks for fresh uploads when you open or return
+to the Home tab**. It refreshes the source pool, rather than just reranking old
+candidates. It does not poll continuously, use background alarms, or navigate to
+Subscriptions on your behalf.
+
+In the extension popup, **Keep recommendations fresh** provides:
+
+- **Check for new uploads when opening YouTube Home** — on by default.
+- **Minimum time between successful checks** — 15 minutes, 30 minutes,
+  **1 hour (default)**, 2 hours, 6 hours, or 24 hours.
+- **Refresh uploads now** — explicitly bypasses the TTL.
+- A status label showing the last successful refresh, new candidate count, or
+  any authorization/error status. Home also has a **Refresh uploads** button.
+
+**Prerequisite:** Automatic upload discovery uses the official YouTube Data API,
+not the browser's existing signed-in page. To enable it, configure a Google
+OAuth client ID as described below and complete the one-time **Sync from YouTube
+API** authorization in the popup. The public repository intentionally does not
+ship with somebody else's OAuth client. Until configured, the extension
+continues to rank candidates gathered by browsing, and displays a useful setup
+message rather than silently pretending to refresh.
+
+Home-triggered authorization is always **non-interactive** and uses an unexpired
+session token or an attempted silent Google authorization. If authorization has
+expired or needs interaction, the extension shows **Authorize YouTube API** rather
+than opening a login dialog. Manual refresh is an explicit user action and may
+request authorization.
+
+An automatic check fetches the subscriptions list and up to **five latest
+uploads from each of the first 200 subscribed channels**. This bounded pass
+skips the extra view-statistics lookups to conserve API quota; view counts can
+still be learned from normal browsing or a full manual API import. Only newly
+encountered video IDs are counted as new discoveries. Automatic checks have a
+**15-minute retry backoff** after a failed attempt and share a single-flight
+guard with full API sync, preventing redundant simultaneous requests.
+
+A full data reset pauses both collection and automatic refresh, clears the
+short-lived session token, and requires manual reauthorization to use API sync
+again. **Resume collection** re-enables collection; clearing only candidates
+invalidates the previous refresh timestamp. No OAuth secrets or access tokens
+are written to persistent local storage.
+
+## Troubleshooting a stalled Google authorization
+
+If **Sync from YouTube API** stays on **"Authorizing with your Google
+account…"**, that is the OAuth stage: no likes or uploads have been imported
+yet. Brave's `chrome.identity.launchWebAuthFlow()` opens a separate browser
+authorization window and completes only when Google redirects to the registered
+`https://<extension-id>.chromiumapp.org/oauth2` callback.
+
+1. Look for a separate Google sign-in window behind Brave or on another desktop.
+   Complete the consent screen there. If Google shows an error, open its **error
+   details** and record the error name and description, not any tokens or full
+   callback URL.
+2. Confirm that the popup's **Copy redirect URI** matches the *Authorized
+   redirect URI* on the **Web application** OAuth client **exactly**, including
+   `/oauth2` without a trailing slash.
+3. Confirm that `manifest.json` uses that same Web application client ID,
+   reload the unpacked extension in `brave://extensions`, and verify your
+   Google account is a test user under the app's Audience configuration.
+4. If no window opens or Google's redirect never completes, the flow now times
+   out after **two minutes** and displays a specific error. The popup also
+   recognizes authorization states left behind if the MV3 service worker
+   terminated, rather than disabling Sync forever. Close any leftover
+   authorization window before retrying.
+
+The extension starts the interactive identity call immediately from the
+user-triggered Sync message, before waiting for storage writes. This avoids
+losing the browser's user-activation context. Automatic homepage refresh remains
+**non-interactive**. Never paste an access token, complete redirect URL, or
+client secret into a public issue.
+
 ## Optional Google API import
 
 You can import your likes, subscriptions, and a bounded sample of subscribed-channel uploads **without manually scrolling**. This requires one-time Google OAuth configuration; ordinary browsing and Home replacement do not require it.
 
-1. In [Google Cloud Console](https://console.cloud.google.com/), create a project and enable **YouTube Data API v3**.
-2. Configure the Google OAuth consent screen (Google Auth Platform). Add your own Google account as a test user if the app is in testing mode.
-3. Load the extension unpacked and copy its ID from `chrome://extensions` (or `brave://extensions`).
-4. In Google Cloud, create an **OAuth client ID** of type **Chrome Extension**, using that exact extension ID.
-5. Replace `REPLACE_WITH_OAUTH_CLIENT_ID.apps.googleusercontent.com` in `manifest.json` with your OAuth client ID. Do **not** paste a client secret (none is needed).
-6. Reload the extension, open its popup, and select **Sync from YouTube API**. Approve the YouTube read-only permission.
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and enable **YouTube Data API v3** for your project.
+2. Open [Google Auth Platform → Audience](https://console.cloud.google.com/auth/audience); choose **External** and add your Google account as a test user if the app is in Testing mode. Configure [Branding](https://console.cloud.google.com/auth/branding) and add the `https://www.googleapis.com/auth/youtube.readonly` scope in [Data Access](https://console.cloud.google.com/auth/data-access).
+3. In `brave://extensions` (or `chrome://extensions`), enable Developer mode, load the unpacked extension, and copy its **Extension ID**.
+4. In [Google Auth Platform → Clients](https://console.cloud.google.com/auth/clients), create a new OAuth client of type **Web application** (not Chrome Extension). Add the **Authorized redirect URI** below, replacing `<extension-id>` with the ID from step 3:
 
-The user-initiated sync uses `videos.list(myRating=like)`, `subscriptions.list(mine=true)`, `channels.list`, and `playlistItems.list`. It currently imports up to 1,000 recent likes, up to 2,000 subscriptions (40 pages × 50), and the 8 newest uploads from each of the first 200 subscribed channels. These limits keep the first experiment bounded. You can rerun the sync manually; **no background polling** runs.
+   ```text
+   https://<extension-id>.chromiumapp.org/oauth2
+   ```
 
-The Google access token is handled by Chrome's Identity API; it is never written to extension storage or sent to a project server. Imported video metadata and preferences are stored locally. Feedback timestamps for historical imported likes use the import time because the API does not supply the original like timestamp; we do not fabricate historical dates.
+   Register this URL **exactly**, including the `/oauth2` path (no trailing slash).
+5. Replace `REPLACE_WITH_WEB_OAUTH_CLIENT_ID.apps.googleusercontent.com` in `manifest.json` with this new **Web application client ID**. Do **not** embed its client secret.
+6. Reload the unpacked extension and click **Sync from YouTube API** in its popup. Approve the requested read-only scope. After this first authorization, Home can attempt silent TTL refreshes.
 
-Google authorization, consent screen configuration, API quota, or Brave-specific Identity behavior may prevent syncing. If so, the extension still works through browsing. A public release would require an appropriate OAuth app, verification where applicable, and review of YouTube API policies, including data-retention and refresh obligations.
+The user-initiated sync uses `videos.list(myRating=like)`, `subscriptions.list(mine=true)`, `channels.list`, and `playlistItems.list`. It currently imports up to 1,000 recent likes, up to 2,000 subscriptions (40 pages × 50), and the 8 newest uploads from each of the first 200 subscribed channels. These limits keep the first experiment bounded. You can rerun the full sync manually; automatic **homepage-triggered** upload refresh is separate and also uses no background polling.
+
+Authorization uses `chrome.identity.launchWebAuthFlow()` with a registered HTTPS `chromiumapp.org` callback. Google returns a **short-lived access token**; only that token and its expiry are kept in `chrome.storage.session` (not persistent `chrome.storage.local`), and full local-data reset clears it. No OAuth token or client secret is sent to a project server. A silent authorization attempt may fail after expiry or browser restart, in which case use the manual **Sync from YouTube API** button to authorize again. Historical likes receive an import-time feedback timestamp because the API doesn't reveal the original like time.
+
+**Brave compatibility:** Brave's `chrome.identity.getAuthToken()` produced Google's `Error 400: invalid_request — Custom URI scheme is not supported on Chrome apps`. This version uses `launchWebAuthFlow()` and an HTTPS callback instead. A previous **Chrome Extension** OAuth client cannot be reused; create the **Web application** client from step 4.
+
+**Security trade-off:** The client-only fallback currently uses Google's OAuth implicit access-token response, which Google discourages for modern production applications. This is a local personal experiment: it uses OAuth state validation, an extension-owned HTTPS redirect, short-lived in-memory/session credentials and read-only scopes, but has **no refresh token**. Before publishing a broadly distributed extension, replace it with a production-approved authorization architecture (such as a correctly configured authorization-code/PKCE flow with suitable client support or a trusted token exchange) and complete any required Google review.
+
+Google authorization, consent configuration, API quota, or browser behavior may still prevent syncing; browsing-based recommendations remain available. For broader distribution, review the YouTube API Services policies, including data-retention and refresh obligations.
 
 ## Discovery and repeat filtering
 
@@ -192,7 +276,7 @@ hide the old header-mounted button.
 ## What is implemented
 
 - **Home-page replacement.** Your ranked feed is the default at youtube.com, showing channel, view count and upload age when available, with progressive loading and a switch to restore original YouTube. The popup controls preferences and optional import.
-- **No OAuth needed for browsing and no background polling.** A Manifest V3 content script observes the YouTube pages you visit (home, search, subscriptions, related videos, channel pages and your liked playlist). Video titles, channel names, and upload-age text become candidates. There is no attempt to scrape unseen uploads.
+- **No OAuth needed for browsing and no background polling.** An authorized, TTL-guarded API refresh runs only when Home is visited or a refresh button is clicked. A Manifest V3 content script observes the YouTube pages you visit (home, search, subscriptions, related videos, channel pages and your liked playlist). Video titles, channel names, and upload-age text become candidates. There is no attempt to scrape unseen uploads.
 - **Feedback captured as events.** Clicking YouTube's Like/Unlike button is recorded when the extension can confirm the button's changed pressed state. The extension also supports explicit local feedback. Subscriptions/unsubscriptions from the watch page are recorded on a best-effort basis.
 - **Watch markers.** The extension records watches when playback starts, plus an approximate maximum playback position. A video merely appearing on screen does not count as watched.
 - **Continuously updated preferences.** A preference profile is rebuilt from your current likes and dislikes, weighted by a configurable feedback half-life (30/90/365 days or nearly static). Earlier feedback decays; more recent feedback has greater influence.
@@ -205,7 +289,7 @@ The **Like** button inside the extension updates its *own* model only. It does *
 ## What isn't implemented
 
 - No general-purpose crawling of all videos. Without optional API sync, discovery remains limited to pages you visit; API sync adds a bounded sample of uploads from subscribed channels.
-- API sync imports likes and subscriptions but not watch history. Browsing on other devices is not automatically captured, and one-time imported signals are not continually synchronized.
+- Manual API sync imports likes and subscriptions but not watch history. Home-triggered refresh obtains recent uploads after authorization, but does not continuously synchronize likes or views from other devices.
 - No transcripts, captions, video decoding, embedding model, external LLM, or direct weight-space programming **yet**.
 - No calibrated probabilities or quantitative claim that this system beats YouTube. Scores are relative heuristics, not probabilities.
 - YouTube changes its page markup frequently. Like and subscribe button detection is **best effort**, and only confirmed state transitions are recorded.
@@ -252,7 +336,7 @@ const recommendations = rankVideos(items, { mode: 'personalized', diversity: 55,
 
 ## Privacy and limitations
 
-The extension requests `storage` and `identity`, plus access to `https://www.youtube.com/*` and `https://www.googleapis.com/*`. The `history` permission is **optional** and requested only after you click the history-import button. Only explicit API sync invokes Google OAuth; the normal recommender does not access Google credentials. It does not send browsing history to a project server. Exported JSON is sensitive because it contains viewing preferences; keep it private.
+The extension requests `storage` and `identity`, plus access to `https://www.youtube.com/*` and `https://www.googleapis.com/*`. The `history` permission is **optional** and requested only after you click the history-import button. Browsing-based recommendations don't require OAuth; optional homepage refresh may use an already-authorized session token or attempt a silent OAuth flow, while manual API sync may open Google consent. It does not send browsing history to a project server. Exported JSON is sensitive because it contains viewing preferences; keep it private.
 
 Recommending only from the observed feed may reinforce YouTube's own candidate-selection biases. The future independent discovery pipeline should use the same preference and ranking engine, with a broader source of recent videos.
 
