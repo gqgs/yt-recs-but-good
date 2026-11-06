@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenize, cosine, preferenceProfile, relativeAgeDays, rankVideos, validVideoTitle } from '../lib/recommender.js';
+import { tokenize, cosine, preferenceProfile, relativeAgeDays, rankVideos, validVideoTitle, effectivePublishedAt } from '../lib/recommender.js';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 function video(id, title, extra = {}) {
@@ -105,4 +105,22 @@ test('visited and YouTube progress marked videos are excluded unless showSeen', 
   };
   assert.deepEqual(rankVideos(items, {}, NOW).map(v => v.id), ['c']);
   assert.equal(rankVideos(items, { showSeen: true }, NOW).length, 3);
+});
+
+test('hours and minutes are correctly interpreted as fractional days', () => {
+  assert.equal(relativeAgeDays('4 hours ago'), 4/24);
+  assert.equal(relativeAgeDays('30 minutes ago'), 30/1440);
+  assert.equal(relativeAgeDays('45 seconds ago'), 45/86400);
+  assert.equal(relativeAgeDays('Streamed 2 hours ago'), 2/24);
+});
+
+test('legacy publication timestamps equal to capture time are corrected without deleting data', () => {
+  const item = video('a', 'A newly discovered lecture', {
+    publishedText: '4 hours ago', publishedAt: NOW, firstSeenAt: NOW
+  });
+  assert.equal(effectivePublishedAt(item), NOW - 4 * 3600000);
+  assert.equal(effectivePublishedAt({
+    publishedText: '4 hours ago', publishedAt: NOW - 4 * 3600000,
+    firstSeenAt: NOW
+  }), NOW - 4 * 3600000);
 });
