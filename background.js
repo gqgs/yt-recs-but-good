@@ -350,7 +350,7 @@ async function performCandidateRefresh(interactive) {
     if (paused) return;
     const message = String(error?.message || error);
     await saveRefreshStatus({
-      phase: !interactive && /auth|sign.?in|token|consent|not granted/i.test(message)
+      phase: !interactive && /auth|sign.?in|token|consent|not granted|login_required|interaction_required|access_denied|silent/i.test(message)
         ? 'needs_auth' : 'error', message: message.slice(0, 180)
     });
   }
