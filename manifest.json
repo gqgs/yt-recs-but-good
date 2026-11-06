@@ -5,10 +5,12 @@
   "version": "0.2.0",
   "description": "Local-first YouTube discovery, trained by the likes you actually give.",
   "permissions": [
-    "storage"
+    "storage",
+    "identity"
   ],
   "host_permissions": [
-    "https://www.youtube.com/*"
+    "https://www.youtube.com/*",
+    "https://www.googleapis.com/*"
   ],
   "action": {
     "default_title": "yt-recs-but-good",
@@ -32,5 +34,11 @@
         "home.css"
       ]
     }
-  ]
+  ],
+  "oauth2": {
+    "client_id": "REPLACE_WITH_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/youtube.readonly"
+    ]
+  }
 }
