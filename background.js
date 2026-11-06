@@ -5,6 +5,18 @@ const MAX_EVENTS = 1500;
 const clean = (value, length = 200) => String(value || '').trim().slice(0, length);
 const validId = id => typeof id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(id);
 const empty = () => ({ items: {}, channels: {}, events: [] });
+const DAY = 86_400_000;
+function estimatePublishedAt(label, now) {
+  const value = clean(label, 80).toLowerCase();
+  if (!value) return null;
+  if (/just now|today|hour|minute|second/.test(value)) return now;
+  if (/yesterday/.test(value)) return now - DAY;
+  const match = value.match(/(\\d[\\d,.]*)\\s+(day|week|month|year)s?\\s+ago/);
+  if (!match) return null;
+  const n = Number(match[1].replace(/,/g, ''));
+  if (!Number.isFinite(n)) return null;
+  return now - n * { day: DAY, week: 7 * DAY, month: 30 * DAY, year: 365 * DAY }[match[2]];
+}
 
 async function readState() {
   const result = await chrome.storage.local.get(KEY);
@@ -42,6 +54,7 @@ function updateItem(state, data, now, source = '') {
     thumbnail: 'https://i.ytimg.com/vi/' + data.id + '/mqdefault.jpg',
     url: 'https://www.youtube.com/watch?v=' + data.id,
     publishedText: clean(data.publishedText, 80) || old.publishedText || '',
+    publishedAt: old.publishedAt || estimatePublishedAt(data.publishedText, now),
     candidate,
     subscribed: typeof knownSubscription === 'boolean' ? knownSubscription : Boolean(data.subscribed || old.subscribed),
     source: clean(data.source, 50) || source || old.source || '',
