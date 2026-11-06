@@ -227,16 +227,19 @@ async function syncStatus(phase, message, counts = {}) {
   } });
 }
 async function importVideos(source, videos) {
-  let newCount = 0;
-  for (let i = 0; i < videos.length; i += 120) {
-    const batch = videos.slice(i, i + 120);
-    newCount += await enqueueWrite(state => {
+  if (!videos.length) return 0;
+  // A single serialized storage transaction avoids rebuilding the Home feed
+  // dozens of times while importing hundreds of subscribed-channel uploads.
+  return enqueueWrite(state => {
+    let newCount = 0;
+    for (let i = 0; i < videos.length; i += 120) {
+      const batch = videos.slice(i, i + 120);
       const newIds = new Set(batch.filter(v => !state.items[v.id]).map(v => v.id));
+      newCount += newIds.size;
       process(state, { type: 'CANDIDATES', source, videos: batch });
-      return newIds.size;
-    });
-  }
-  return newCount;
+    }
+    return newCount;
+  });
 }
 async function importSubscriptions(subs) {
   await enqueueWrite(state => {
@@ -333,13 +336,12 @@ async function performCandidateRefresh(interactive) {
     if (!token) throw new Error('Google authorization is required. Use the API Sync button in the extension popup.');
     const subscriptions = await fetchSubscriptions(token);
     await importSubscriptions(subscriptions);
-    let newlyFound = 0;
+    const newUploads = [];
     const summary = await fetchUploads(token, subscriptions, {
       maxChannels: 200, maxPerChannel: 5, includeStatistics: false,
-      onBatch: async videos => {
-        newlyFound += await importVideos('subscriptions', videos);
-      }
+      onBatch: async videos => { newUploads.push(...videos); }
     });
+    const newlyFound = await importVideos('subscriptions', newUploads);
     const paused = (await chrome.storage.local.get(PAUSED_KEY))[PAUSED_KEY] === true;
     if (paused) return;
     await saveRefreshStatus({
@@ -388,7 +390,11 @@ function startCandidateRefresh({ force = false, interactive = false } = {}) {
     return { started: true };
   })();
   refreshKickoffPromise = kickoff;
-  void kickoff.finally(() => {
+  // Observe both resolve and reject so no orphaned promise can create an
+  // unhandled rejection after a service-worker event has returned.
+  void kickoff.then(() => {
+    if (refreshKickoffPromise === kickoff) refreshKickoffPromise = null;
+  }, () => {
     if (refreshKickoffPromise === kickoff) refreshKickoffPromise = null;
   });
   return kickoff;
