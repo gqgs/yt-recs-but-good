@@ -92,6 +92,24 @@ where YouTube provides that information, using a familiar line such as
   run a new opt-in API sync; missing metadata is omitted, not fabricated.
 - Video view counts are not refreshed continuously in the background.
 
+## Fix for offscreen, browser-blocking delete confirmations
+
+The original extension used the native JavaScript `confirm()` API for destructive
+actions. In Brave, that browser-modal dialog could appear partially offscreen
+when invoked from the small extension popup, blocking other browser windows
+until dismissed. This looked like a browser freeze even without any data
+deletion occurring.
+
+**Delete all data** and **Clear candidates only** now open a non-blocking,
+keyboard-accessible confirmation *inside* the popup. The panel is bounded
+to the popup viewport, supports Cancel and Escape, and never calls the
+browser-native confirmation API. Clicking an action only opens the confirmation;
+data is deleted after explicitly clicking its second action button.
+
+If an old native confirmation is currently stuck, press **Escape** to cancel it
+(or close/restart Brave if necessary), then reload the extension before trying
+either action again.
+
 ## Safe data reset and cache management
 
 A previous popup reset could cause a severe browser stall when large storage
