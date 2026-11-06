@@ -26,6 +26,12 @@
       <button id="open-home" class="primary">Open personalized homepage ↗</button>
     </section>
 
+    <section id="collection-paused" class="paused-notice" hidden>
+      <strong>Collection paused</strong>
+      <p>Your local data was cleared. The extension will not rebuild the candidate pool until you resume it.</p>
+      <button id="resume-collection" class="primary">Resume collection</button>
+    </section>
+
     <div class="stats" aria-label="Local dataset statistics">
       <div><strong id="likes-count">0</strong><span>likes</span></div>
       <div><strong id="candidates-count">0</strong><span>candidates</span></div>
@@ -85,11 +91,6 @@
     </section>
 
     <section id="results" class="results" aria-live="polite"></section>
-    <section id="collection-paused" class="paused-notice" hidden>
-      <strong>Collection paused</strong>
-      <p>Your local data was cleared. The extension will not rebuild the candidate pool until you resume it.</p>
-      <button id="resume-collection" class="primary">Resume collection</button>
-    </section>
     <section class="footer-tools">
       <button id="export-data" class="text-button">Export local data</button>
       <button id="clear-candidates" class="text-button">Clear candidates only</button>
