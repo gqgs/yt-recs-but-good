@@ -85,10 +85,17 @@
     </section>
 
     <section id="results" class="results" aria-live="polite"></section>
+    <section id="collection-paused" class="paused-notice" hidden>
+      <strong>Collection paused</strong>
+      <p>Your local data was cleared. The extension will not rebuild the candidate pool until you resume it.</p>
+      <button id="resume-collection" class="primary">Resume collection</button>
+    </section>
     <section class="footer-tools">
       <button id="export-data" class="text-button">Export local data</button>
-      <button id="reset-data" class="text-button danger">Delete data</button>
+      <button id="clear-candidates" class="text-button">Clear candidates only</button>
+      <button id="reset-data" class="text-button danger">Delete all data</button>
     </section>
+    <p id="reset-status" role="status" aria-live="polite"></p>
     <p class="disclaimer">Use YouTube's Like button as explicit feedback. Popup ratings affect this extension only. Videos are collected when you browse; no upload polling or Google login is used.</p>
     <p class="error" id="error" role="alert" hidden></p>
   </main>
