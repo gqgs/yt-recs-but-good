@@ -9,7 +9,7 @@ const CID = 'UC' + 'a'.repeat(22);
 const VID = 'abcdefghijk';
 test('parses API likes and subscription metadata safely', () => {
   assert.equal(likedVideo({ id: VID, snippet: { title: 'An interesting talk', channelId: CID } }).id, VID);
-  assert.equal(likedVideo({ id: 'not-a-video', snippet: { title: 'bad' } }), null);
+  assert.equal(likedVideo({ id: 'invalid id', snippet: { title: 'bad' } }), null);
   assert.equal(subscription({ snippet: { resourceId: { channelId: CID }, title: 'Linux Lab' } }).channelId, CID);
   assert.equal(subscription({ snippet: { resourceId: { channelId: 'invalid' } } }), null);
 });
