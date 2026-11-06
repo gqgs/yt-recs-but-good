@@ -11,6 +11,14 @@
   let root = null;
   let mountTimer = null;
   let requestId = 0;
+  const PAGE_SIZE = 12;
+  let visibleCount = 0;
+  let rankedVideos = [];
+  let gridElement = null;
+  let loadButton = null;
+  let pageStatus = null;
+  let scrollObserver = null;
+
 
   const onHome = () => location.pathname === '/';
   const node = (tag, className, label) => {
@@ -43,9 +51,15 @@
   async function setMode(mode) {
     if (!Object.hasOwn(MODES, mode)) return;
     settings = { ...settings, mode };
+    visibleCount = 0;
     await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
   }
   function cleanUp() {
+    scrollObserver?.disconnect();
+    scrollObserver = null;
+    gridElement = null;
+    visibleCount = 0;
+    rankedVideos = [];
     requestId++;
     root?.remove();
     root = null;
@@ -95,6 +109,9 @@
   }
   function renderDisabled() {
     if (!ensureRoot()) return;
+    scrollObserver?.disconnect();
+    scrollObserver = null;
+    gridElement = null;
     const bar = node('div', 'ytrbg-disabled');
     bar.append(node('span', '', 'YouTube\'s original recommendations are showing.'),
       button('Switch to yt-recs-but-good', 'ytrbg-primary', () => {
@@ -136,18 +153,51 @@
     title.title = video.title;
     const meta = node('div', 'ytrbg-meta',
       [video.channel, video.publishedText].filter(Boolean).join(' · '));
-    const reason = node('div', 'ytrbg-reason', video.reason);
+    const explain = node('details', 'ytrbg-why');
+    const summary = node('summary', '', 'Why this video?');
+    const explanation = node('p', '', video.reason || 'Selected by your local recommendation policy.');
+    explain.append(summary, explanation);
     const actions = node('div', 'ytrbg-actions');
     actions.append(button('Seen', '', () => {
       mark(video, 'MARK_SEEN').catch(showError);
     }), button('Not for me', '', () => {
       mark(video, 'FEEDBACK', 'less').catch(showError);
     }));
-    el.append(anchor, title, meta, reason, actions);
+    el.append(anchor, title, meta, actions, explain);
     return el;
+  }
+
+  function updatePagination() {
+    const remaining = Math.max(0, rankedVideos.length - visibleCount);
+    if (pageStatus) {
+      pageStatus.textContent = 'Showing ' + visibleCount + ' of ' + rankedVideos.length +
+        ' recommendations' + (remaining ? '' : ' · All caught up');
+    }
+    if (loadButton) {
+      loadButton.hidden = remaining === 0;
+      loadButton.disabled = remaining === 0;
+    }
+    if (!remaining) {
+      scrollObserver?.disconnect();
+      scrollObserver = null;
+    }
+  }
+  function appendPage() {
+    if (!enabled || !onHome() || !gridElement?.isConnected) return;
+    const next = Math.min(visibleCount + PAGE_SIZE, rankedVideos.length);
+    for (let i = visibleCount; i < next; i++) gridElement.append(card(rankedVideos[i]));
+    visibleCount = next;
+    updatePagination();
   }
   function render({ recommendations, counts }) {
     if (!ensureRoot() || !enabled) return;
+    scrollObserver?.disconnect();
+    scrollObserver = null;
+    gridElement = null;
+    rankedVideos = recommendations;
+    const targetCount = Math.min(
+      Math.max(PAGE_SIZE, visibleCount), rankedVideos.length);
+    visibleCount = 0;
     const children = [makeHeader()];
     const toolbar = node('div', 'ytrbg-toolbar');
     toolbar.append(makeTabs(), node('div', 'ytrbg-stats',
@@ -156,22 +206,40 @@
     if (!recommendations.length) {
       const empty = node('section', 'ytrbg-empty');
       empty.append(node('h2', '', 'No recommendations yet'),
-        node('p', '', 'Visit Subscriptions or Liked videos to collect candidates. This first version only discovers videos from pages you visit.'));
+        node('p', '', 'Collect more candidates by visiting subscriptions or performing an optional API import. Previously saved ads and broken titles are filtered.'));
       const actions = node('div', 'ytrbg-empty-actions');
       actions.append(link('Browse subscriptions', '/feed/subscriptions', 'ytrbg-primary'),
         link('Open Liked videos', '/playlist?list=LL', 'ytrbg-secondary'));
       empty.append(actions);
       children.push(empty);
     } else {
-      const grid = node('div', 'ytrbg-grid');
-      for (const video of recommendations) grid.append(card(video));
-      children.push(grid);
-      const footer = node('p', 'ytrbg-footer',
-        'Recommendations are local. Use YouTube\'s Like button on videos you enjoy; "Not for me" here trains only this extension.');
-      children.push(footer);
+      gridElement = node('div', 'ytrbg-grid');
+      children.push(gridElement);
+      const pagination = node('div', 'ytrbg-pagination');
+      pageStatus = node('p', 'ytrbg-page-status');
+      loadButton = button('Load more recommendations', 'ytrbg-load-more', appendPage);
+      const sentinel = node('div', 'ytrbg-scroll-sentinel');
+      sentinel.setAttribute('aria-hidden', 'true');
+      pagination.append(pageStatus, loadButton, sentinel);
+      children.push(pagination);
+      children.push(node('p', 'ytrbg-footer',
+        'Recommendations are local. Like videos on YouTube to teach your preferences; "Not for me" here trains only this extension.'));
     }
     root.replaceChildren(...children);
+    if (!recommendations.length) return;
+    // Preserve the number of visible cards when feedback or candidates change.
+    // This avoids jumping back to the first page after every local write.
+    while (visibleCount < targetCount) appendPage();
+    updatePagination();
+    const sentinel = root.querySelector('.ytrbg-scroll-sentinel');
+    if (sentinel && visibleCount < rankedVideos.length && typeof IntersectionObserver !== 'undefined') {
+      scrollObserver = new IntersectionObserver(entries => {
+        if (entries.some(entry => entry.isIntersecting)) appendPage();
+      }, { rootMargin: '450px 0px' });
+      scrollObserver.observe(sentinel);
+    }
   }
+
   async function refresh() {
     if (!ensureRoot()) return;
     if (!enabled) { renderDisabled(); return; }
@@ -195,8 +263,11 @@
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
       if (changes[HOME_KEY]) enabled = changes[HOME_KEY].newValue !== false;
-      if (changes[SETTINGS_KEY])
-        settings = { mode: 'personalized', ...(changes[SETTINGS_KEY].newValue || {}) };
+      if (changes[SETTINGS_KEY]) {
+        const next = { mode: 'personalized', ...(changes[SETTINGS_KEY].newValue || {}) };
+        if (next.mode !== settings.mode) visibleCount = 0;
+        settings = next;
+      }
       if (changes[HOME_KEY] || changes[SETTINGS_KEY] || changes['yt-recs-state-v1'])
         void refresh();
     });
