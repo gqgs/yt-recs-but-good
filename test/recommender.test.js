@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenize, cosine, preferenceProfile, relativeAgeDays, rankVideos } from '../lib/recommender.js';
+import { tokenize, cosine, preferenceProfile, relativeAgeDays, rankVideos, validVideoTitle } from '../lib/recommender.js';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 function video(id, title, extra = {}) {
@@ -72,4 +72,17 @@ test('saved publication dates age over time instead of keeping stale relative la
     b: video('b', 'Fresh video', { publishedText: '10 days ago', publishedAt: NOW - 86_400_000 })
   };
   assert.equal(rankVideos(items, { mode: 'recent' }, NOW)[0].id, 'b');
+});
+
+test('old invalid titles and advertisement markers are filtered from recommendations', () => {
+  const items = {
+    a: video('a', 'Watch'),
+    b: video('b', '23:28Exclusive Access'),
+    c: video('c', '24:17'),
+    d: video('d', 'A genuine Linux presentation', { isAd: true }),
+    e: video('e', 'A genuine Linux presentation')
+  };
+  assert.deepEqual(rankVideos(items, {}, NOW).map(v => v.id), ['e']);
+  assert.equal(validVideoTitle('Watch'), false);
+  assert.equal(validVideoTitle('Interesting performance'), true);
 });
