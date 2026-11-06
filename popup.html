@@ -55,7 +55,10 @@
       </div>
       <p>One-time Google API sync of your likes, subscriptions and recent uploads. No scrolling or background polling required.</p>
       <button id="api-sync" class="secondary">Sync from YouTube API</button>
-      <p id="api-sync-status" role="status" aria-live="polite">Requires a Google OAuth client ID in the extension manifest. <a href="https://github.com/gqgs/yt-recs-but-good#optional-google-api-import" target="_blank" rel="noopener noreferrer">Setup guide</a></p>
+      <p id="api-sync-status" role="status" aria-live="polite">Requires a Google Web application OAuth client ID and the HTTPS redirect URI. <a href="https://github.com/gqgs/yt-recs-but-good#optional-google-api-import" target="_blank" rel="noopener noreferrer">Setup guide</a></p>
+      <p class="redirect-help">Register this exact redirect URI in Google Auth Platform:</p>
+      <code id="oauth-redirect-url" class="oauth-redirect-url"></code>
+      <button type="button" id="copy-oauth-redirect" class="secondary">Copy redirect URI</button>
     </section>
     <section class="candidate-refresh" aria-labelledby="candidate-refresh-title">
       <h2 id="candidate-refresh-title">Keep recommendations fresh</h2>
