@@ -62,7 +62,7 @@
       if (fresh.length >= 120) break;
       const video = extractCard(card);
       if (!video) continue;
-      const key = source + ':' + video.id + ':' + video.title;
+      const key = source + ':' + video.id + ':' + video.title + ':' + video.channel + ':' + video.publishedText;
       if (seenCards.has(key)) continue;
       seenCards.add(key);
       fresh.push(video);
@@ -81,35 +81,38 @@
     const channelNode = document.querySelector('#owner ytd-channel-name a, #upload-info ytd-channel-name a, ytd-video-owner-renderer a.yt-simple-endpoint');
     return { id, title, channel: text(channelNode), channelId: href(channelNode).split('?')[0] };
   }
-  function attachPlayer() {
+  function recordPlay(player) {
     const id = videoId(location.href);
-    if (!id || location.pathname !== '/watch') return;
+    if (!id || location.pathname !== '/watch' || player.paused) return;
+    if (currentVideoId !== id) {
+      currentVideoId = id;
+      progressLastSent = 0;
+      send({ type: 'WATCH', video: watchMetadata(id) });
+    }
+  }
+  function attachPlayer() {
+    if (location.pathname !== '/watch') return;
     const player = document.querySelector('video.html5-main-video');
-    if (!player || player === boundPlayer) return;
-    boundPlayer = player;
-    currentVideoId = null;
-    progressLastSent = 0;
-    const activeId = id;
-    const onPlay = () => {
-      if (videoId(location.href) !== activeId) return;
-      if (currentVideoId !== activeId) {
-        currentVideoId = activeId;
-        send({ type: 'WATCH', video: watchMetadata(activeId) });
-      }
-    };
-    player.addEventListener('play', onPlay);
-    player.addEventListener('timeupdate', () => {
-      if (videoId(location.href) !== activeId || player.paused) return;
-      const now = Date.now();
-      if (now - progressLastSent < 15000) return;
-      progressLastSent = now;
-      if (currentVideoId !== activeId) onPlay();
-      send({ type: 'PROGRESS', id: activeId, seconds: player.currentTime });
-    });
-    if (!player.paused) onPlay();
+    if (!player) return;
+    if (player !== boundPlayer) {
+      boundPlayer = player;
+      player.addEventListener('play', () => {
+        if (player === boundPlayer) recordPlay(player);
+      });
+      player.addEventListener('timeupdate', () => {
+        if (player !== boundPlayer || player.paused || location.pathname !== '/watch') return;
+        const now = Date.now();
+        if (now - progressLastSent < 15000) return;
+        recordPlay(player);
+        progressLastSent = now;
+        const id = videoId(location.href);
+        if (id) send({ type: 'PROGRESS', id, seconds: player.currentTime });
+      });
+    }
+    if (!player.paused) recordPlay(player);
   }
 
-  function readLikeState() {
+    function readLikeState() {
     const selector = '#segmented-like-button button[aria-pressed], like-button-view-model button[aria-pressed], ytd-toggle-button-renderer#segmented-like-button button[aria-pressed]';
     const button = document.querySelector(selector);
     if (!button) return null;
@@ -157,7 +160,6 @@
       previousUrl = location.href;
       seenCards.clear();
       currentVideoId = null;
-      boundPlayer = null;
     }
     scheduleScan();
   }
