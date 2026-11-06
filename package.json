@@ -1,11 +1,11 @@
 {
   "name": "yt-recs-but-good",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "check": "node --check background.js && node --check content.js && node --check home.js && node --check popup.js && node --check lib/recommender.js && npm test"
+    "check": "node --check background.js && node --check content.js && node --check home.js && node --check popup.js && node --check lib/recommender.js && node --check lib/video-metadata.js && node --check lib/api-sync.js && npm test"
   },
   "engines": {
     "node": ">=20"
