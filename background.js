@@ -207,6 +207,8 @@ let queue = Promise.resolve();
 
 function enqueueWrite(fn) {
   const task = queue.then(async () => {
+    const paused = (await chrome.storage.local.get(PAUSED_KEY))[PAUSED_KEY] === true;
+    if (paused) throw new Error('Collection is paused after a reset. Resume it from the popup.');
     const state = await readState();
     const result = await fn(state);
     await saveState(state);
