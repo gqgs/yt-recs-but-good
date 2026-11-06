@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "yt-recs-but-good",
   "short_name": "yt-recs-but-good",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Local-first YouTube discovery, trained by the likes you actually give.",
   "permissions": [
     "storage",
@@ -26,6 +26,7 @@
         "https://www.youtube.com/*"
       ],
       "js": [
+        "lib/card-extractor.js",
         "content.js",
         "home.js"
       ],
