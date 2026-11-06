@@ -111,3 +111,7 @@ body.confirming{overflow:hidden}
 .candidate-refresh-status button{padding:9px 12px;border-radius:7px;font-weight:600}
 .candidate-refresh-status button:disabled{opacity:.6;cursor:wait}
 .candidate-refresh-status p,.candidate-refresh-note{font-size:11px;line-height:1.5;margin:0;color:#a4a6b4}
+
+.oauth-redirect-url{display:block;overflow-wrap:anywhere;white-space:normal;font-size:10px;background:#0d0d15;border:1px solid #383948;border-radius:5px;padding:8px;color:#b6a6ff;user-select:all}
+.api-import .redirect-help{margin:0;font-size:10px}
+#copy-oauth-redirect{justify-self:start;font-size:11px}
