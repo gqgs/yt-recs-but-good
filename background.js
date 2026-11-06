@@ -9,7 +9,7 @@ const MAX_ITEMS = 4000;
 const MAX_EVENTS = 1500;
 const clean = (value, length = 200) => String(value || '').trim().slice(0, length);
 const validId = id => typeof id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(id);
-const empty = () => ({ items: {}, channels: {}, events: [] });
+const empty = () => ({ items: {}, channels: {}, events: [], visitedIds: {} });
 const DAY = 86_400_000;
 function estimatePublishedAt(label, now) {
   const days = relativeAgeDays(label);
@@ -20,7 +20,8 @@ async function readState() {
   const result = await chrome.storage.local.get(KEY);
   const state = result[KEY];
   if (!state || typeof state !== 'object') return empty();
-  return { items: state.items || {}, channels: state.channels || {}, events: state.events || [] };
+  return { items: state.items || {}, channels: state.channels || {}, events: state.events || [],
+    visitedIds: state.visitedIds || {}, historyImportedAt: state.historyImportedAt || null };
 }
 async function saveState(state) {
   const ids = Object.keys(state.items);
@@ -30,6 +31,12 @@ async function saveState(state) {
     for (const id of removable.slice(0, ids.length - MAX_ITEMS)) delete state.items[id];
   }
   if (state.events.length > MAX_EVENTS) state.events = state.events.slice(-MAX_EVENTS);
+  // History imports contain only YouTube video IDs, never arbitrary page URLs.
+  const visited = Object.entries(state.visitedIds || {});
+  if (visited.length > 20000) {
+    visited.sort((a, b) => (b[1] || 0) - (a[1] || 0));
+    state.visitedIds = Object.fromEntries(visited.slice(0, 20000));
+  }
   await chrome.storage.local.set({ [KEY]: state });
 }
 function event(state, type, id, value, now) {
@@ -43,12 +50,19 @@ function updateItem(state, data, now, source = '') {
   const subscriptionKey = channelId || channel;
   const knownSubscription = state.channels[subscriptionKey]?.subscribed;
   const candidate = Boolean(old.candidate || data.candidate);
+  const sources = [...new Set([
+    ...(Array.isArray(old.sources) ? old.sources : (old.source ? [old.source] : [])),
+    ...[source, data.source].filter(Boolean)
+  ])].slice(-10);
   const next = {
     ...old,
     id: data.id,
     title: clean(data.title, 240) || old.title || '',
     channel,
     channelId,
+    sources,
+    visitedAt: old.visitedAt || state.visitedIds?.[data.id] || null,
+    hasResume: Boolean(data.hasResume || old.hasResume),
     thumbnail: 'https://i.ytimg.com/vi/' + data.id + '/mqdefault.jpg',
     url: 'https://www.youtube.com/watch?v=' + data.id,
     publishedText: clean(data.publishedText, 80) || old.publishedText || '',
@@ -140,6 +154,46 @@ function process(state, msg) {
   }
 }
 
+// Browser history is optional and queried only after an explicit UI permission
+// grant. A past visit means "opened", not proof the whole video was watched.
+function youtubeHistoryId(value) {
+  try {
+    const url = new URL(value);
+    if (!['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(url.hostname)) return '';
+    if (url.pathname !== '/watch') return '';
+    const id = url.searchParams.get('v');
+    return validId(id) ? id : '';
+  } catch { return ''; }
+}
+async function importBrowserHistory() {
+  const allowed = await chrome.permissions.contains({ permissions: ['history'] });
+  if (!allowed || !chrome.history?.search) {
+    throw new Error('Browser history permission was not granted.');
+  }
+  const results = await chrome.history.search({
+    text: 'youtube.com/watch', startTime: 0, maxResults: 20000
+  });
+  const ids = new Map();
+  for (const entry of results) {
+    const id = youtubeHistoryId(entry.url || '');
+    if (!id) continue;
+    const at = Number(entry.lastVisitTime) || Date.now();
+    ids.set(id, Math.max(at, ids.get(id) || 0));
+  }
+  return enqueueWrite(state => {
+    state.visitedIds ||= {};
+    for (const [id, at] of ids) {
+      state.visitedIds[id] = Math.max(state.visitedIds[id] || 0, at);
+      if (state.items[id]) state.items[id].visitedAt = state.visitedIds[id];
+    }
+    state.historyImportedAt = Date.now();
+    event(state, 'browser-history-import', '', ids.size, state.historyImportedAt);
+    return { inspected: results.length, videoIds: ids.size,
+      matchedCandidates: [...ids.keys()].filter(id => state.items[id]?.candidate).length,
+      reachedLimit: results.length === 20000 };
+  });
+}
+
 // Serialize all writes so rapid content-script and popup events cannot overwrite each other.
 let queue = Promise.resolve();
 
@@ -220,6 +274,11 @@ async function runApiSync() {
 }
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (!msg || typeof msg.type !== 'string') return false;
+  if (msg.type === 'HISTORY_IMPORT') {
+    importBrowserHistory().then(result => reply({ ok: true, result }),
+      error => reply({ ok: false, error: String(error) }));
+    return true;
+  }
   if (msg.type === 'API_SYNC_START') {
     const oauth = chrome.runtime.getManifest().oauth2?.client_id || '';
     if (!oauth || oauth.includes('REPLACE_WITH')) {
@@ -250,11 +309,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         exploration: Number.isFinite(stored.exploration) ? stored.exploration : 15,
         halfLifeDays: [30, 90, 365, 3650].includes(stored.halfLifeDays) ? stored.halfLifeDays : 90,
         showSeen: stored.showSeen === true,
+        discoveryOnly: stored.discoveryOnly !== false,
         limit: 100
       };
       const items = Object.values(state.items);
       const likes = items.filter(v => v.feedback === 'like').length;
-      const unseen = items.filter(v => v.candidate && !v.watchedAt && v.feedback !== 'like' && v.feedback !== 'less').length;
+      const unseen = items.filter(v =>
+        v.candidate && !v.watchedAt && !v.visitedAt && !v.hasResume &&
+        v.feedback !== 'like' && v.feedback !== 'less').length;
       return { recommendations: rankVideos(state.items, settings),
         counts: { likes, unseen, candidates: items.filter(v => v.candidate).length } };
     }).then(result => reply({ ok: true, result }),
