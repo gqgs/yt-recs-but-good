@@ -74,6 +74,23 @@ Newly observed cards use additional selectors for modern YouTube channel view-mo
 Old cached entries with no recognizable metadata show "Channel unavailable" until
 rediscovered or enriched via the optional API import; we don't invent a channel name.
 
+## Cached metadata after upgrading
+
+**Do not use Delete all data simply to refresh metadata.** That operation
+removes useful likes and viewing history and pauses collection until resumed.
+
+Previously collected video records may still have no view count or upload age.
+Revisiting the Subscriptions or channel page where they were originally found
+lets the extension merge newly captured metadata into the existing records.
+**Clear candidates only** is an optional, more disruptive alternative that
+preserves preferences but requires rebuilding the discovery pool.
+
+A prior parser also interpreted `4 hours ago` and `30 minutes ago` as zero
+days old, producing incorrect **Just now** labels. This has been fixed and
+legacy affected records can be corrected at display time without deleting
+the local dataset. Current view counts still depend on the source page/API
+providing them.
+
 ## Video metadata
 
 The curated Home cards show the channel name, **view count** and **relative upload age**
