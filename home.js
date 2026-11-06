@@ -96,9 +96,7 @@
     left.append(node('div', 'ytrbg-eyebrow', 'A DIFFERENT KIND OF HOME'),
       node('h1', '', 'Your feed, reconsidered.'),
       node('p', '', 'Based on your likes, not somebody else\'s engagement metrics.'));
-    header.append(left, button('Show original YouTube', 'ytrbg-native', () => {
-      setEnabled(false).catch(showError);
-    }));
+    header.append(left);
     return header;
   }
   function showError(error) {
@@ -190,7 +188,7 @@
     visibleCount = next;
     updatePagination();
   }
-  function render({ recommendations, counts }) {
+  function render({ recommendations, counts, paused = false }) {
     if (!ensureRoot() || !enabled) return;
     scrollObserver?.disconnect();
     scrollObserver = null;
@@ -201,24 +199,39 @@
     visibleCount = 0;
     const children = [makeHeader()];
     const toolbar = node('div', 'ytrbg-toolbar');
-    toolbar.append(makeTabs(), node('div', 'ytrbg-stats',
+    const controls = node('div', 'ytrbg-controls');
+    controls.append(makeTabs(), button('Original YouTube', 'ytrbg-native', () => {
+      setEnabled(false).catch(showError);
+    }));
+    toolbar.append(controls, node('div', 'ytrbg-stats',
       counts.likes + ' likes · ' + counts.unseen + ' unseen candidates · ' +
       (settings.discoveryOnly !== false ? 'Discovery sources only' : 'All sources')));
     children.push(toolbar);
     if (!recommendations.length) {
       const empty = node('section', 'ytrbg-empty');
-      empty.append(node('h2', '', 'No recommendations yet'),
-        node('p', '', settings.discoveryOnly !== false
+      empty.append(node('h2', '', paused ? 'Collection paused after reset' : 'No recommendations yet'),
+        node('p', '', paused
+          ? 'Your data was deleted successfully. Collection is still paused, so visiting Likes or Subscriptions cannot index videos. Resume collection to begin again.'
+          : settings.discoveryOnly !== false
           ? 'Discovery mode excludes candidates seen only on YouTube Home or Related. Visit subscriptions, channels, or searches to populate the independent candidate pool, or import subscriptions through the API.'
           : 'Collect more candidates by visiting subscriptions or performing an optional API import. Previously saved ads and broken titles are filtered.'));
       const actions = node('div', 'ytrbg-empty-actions');
-      actions.append(link('Browse subscriptions', '/feed/subscriptions', 'ytrbg-primary'),
-        link('Open Liked videos', '/playlist?list=LL', 'ytrbg-secondary'));
-      if (settings.discoveryOnly !== false) {
-        actions.append(button('Include Home candidates', 'ytrbg-secondary', () => {
-          chrome.storage.local.set({ [SETTINGS_KEY]: { ...settings, discoveryOnly: false } })
-            .catch(showError);
+      if (paused) {
+        actions.append(button('Resume and browse subscriptions', 'ytrbg-primary', async () => {
+          try {
+            await send({ type: 'COLLECTION_RESUME' });
+            location.assign('/feed/subscriptions');
+          } catch (error) { showError(error); }
         }));
+      } else {
+        actions.append(link('Browse subscriptions', '/feed/subscriptions', 'ytrbg-primary'),
+          link('Open Liked videos', '/playlist?list=LL', 'ytrbg-secondary'));
+        if (settings.discoveryOnly !== false) {
+          actions.append(button('Include Home candidates', 'ytrbg-secondary', () => {
+            chrome.storage.local.set({ [SETTINGS_KEY]: { ...settings, discoveryOnly: false } })
+              .catch(showError);
+          }));
+        }
       }
       empty.append(actions);
       children.push(empty);
