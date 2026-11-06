@@ -4,7 +4,7 @@ const SETTINGS_KEY = 'yt-recs-settings-v1';
 const HOME_KEY = 'yt-recs-home-enabled-v1';
 const API_SYNC_KEY = 'yt-recs-api-sync-v1';
 const defaults = { mode: 'personalized', diversity: 55, exploration: 15,
-  halfLifeDays: 90, showSeen: false, limit: 30 };
+  halfLifeDays: 90, showSeen: false, discoveryOnly: true, limit: 30 };
 let settings = { ...defaults };
 let snapshot = { items: {}, channels: {}, events: [] };
 const $ = id => document.getElementById(id);
@@ -62,6 +62,7 @@ function syncOptions() {
   $('exploration').value = settings.exploration;
   $('half-life').value = String(settings.halfLifeDays);
   $('show-seen').checked = settings.showSeen;
+  $('discovery-only').checked = settings.discoveryOnly !== false;
   $('diversity-value').textContent = settings.diversity + '%';
   $('exploration-value').textContent = settings.exploration + '%';
   for (const tab of document.querySelectorAll('[data-mode]')) {
@@ -115,7 +116,8 @@ function render() {
   const items = Object.values(snapshot.items || {});
   const liked = items.filter(v => v.feedback === 'like');
   const candidates = items.filter(v => v.candidate);
-  const unseen = candidates.filter(v => !v.watchedAt && v.feedback !== 'like' && v.feedback !== 'less');
+  const unseen = candidates.filter(v => !v.watchedAt && !v.visitedAt && !v.hasResume &&
+    v.feedback !== 'like' && v.feedback !== 'less');
   $('likes-count').textContent = String(liked.length);
   $('candidates-count').textContent = String(candidates.length);
   $('unseen-count').textContent = String(unseen.length);
@@ -182,6 +184,35 @@ async function initialize() {
   $('show-seen').addEventListener('change', () => {
     settings.showSeen = $('show-seen').checked;
     void persistSettings(); render();
+  });
+  $('discovery-only').addEventListener('change', () => {
+    settings.discoveryOnly = $('discovery-only').checked;
+    void persistSettings(); render();
+  });
+  $('import-history').addEventListener('click', async () => {
+    const button = $('import-history');
+    button.disabled = true;
+    const status = $('history-status');
+    try {
+      // Required to be invoked directly within the click gesture.
+      const granted = await chrome.permissions.request({ permissions: ['history'] });
+      if (!granted) {
+        status.textContent = 'Browser history permission was declined. No data imported.';
+        return;
+      }
+      status.textContent = 'Looking for previously opened YouTube watch pages…';
+      const response = await request({ type: 'HISTORY_IMPORT' });
+      const report = response.result;
+      status.textContent = 'Found ' + report.videoIds + ' YouTube video IDs and matched ' +
+        report.matchedCandidates + ' locally collected candidates.' +
+        (report.reachedLimit ? ' Search hit the 20,000-page cap.' : '');
+      await refresh();
+    } catch (error) {
+      showError(error);
+      status.textContent = 'Import unsuccessful; no other browser history is stored.';
+    } finally {
+      button.disabled = false;
+    }
   });
   $('open-subs').addEventListener('click', () => open('https://www.youtube.com/feed/subscriptions'));
   $('open-likes').addEventListener('click', () => open('https://www.youtube.com/playlist?list=LL'));
