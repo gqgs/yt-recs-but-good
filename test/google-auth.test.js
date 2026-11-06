@@ -71,3 +71,22 @@ test('uses session cache, reauthenticates silently when expired and never logs t
 test('rejects malformed redirect generators', () => {
   assert.throws(() => googleRedirectUrl({ getRedirectURL: () => 'http://localhost:5555' }), /Unexpected/);
 });
+
+test('stalled interactive Brave authorization times out without caching credentials', async () => {
+  const pending = {
+    getRedirectURL() { return redirect; },
+    launchWebAuthFlow() { return new Promise(() => {}); }
+  };
+  const scratch = {};
+  const ephemeral = {
+    async get(k) { return { [k]: scratch[k] }; },
+    async set(v) { Object.assign(scratch, v); },
+    async remove(k) { delete scratch[k]; }
+  };
+  await assert.rejects(getGoogleAccessToken({
+    identity: pending, manifest, sessionStorage: ephemeral,
+    createState: () => state, interactive: true,
+    authTimeoutMs: 12
+  }), /authorization timed out/i);
+  assert.deepEqual(scratch, {});
+});
