@@ -48,7 +48,7 @@
       if (fresh.length >= 120) break;
       const video = extractCard(card);
       if (!video) continue;
-      const key = source + ':' + video.id + ':' + video.title + ':' + video.channel + ':' + video.publishedText;
+      const key = source + ':' + video.id + ':' + video.title + ':' + video.channel + ':' + video.publishedText + ':' + video.hasResume;
       if (seenCards.has(key)) continue;
       seenCards.add(key);
       fresh.push(video);
