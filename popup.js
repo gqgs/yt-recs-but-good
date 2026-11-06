@@ -1,4 +1,5 @@
 import { rankVideos } from './lib/recommender.js';
+import { formatMetadataLine } from './lib/video-metadata.js';
 
 const SETTINGS_KEY = 'yt-recs-settings-v1';
 const HOME_KEY = 'yt-recs-home-enabled-v1';
@@ -97,7 +98,7 @@ function renderVideo(video, index) {
   const title = button(video.title, 'video-title', () => open(video.url));
   title.title = video.title;
   info.append(title);
-  info.append(element('div', 'meta', [video.channel, video.publishedText].filter(Boolean).join(' · ') || 'YouTube'));
+  info.append(element('div', 'meta', [video.channel, formatMetadataLine(video)].filter(Boolean).join(' · ') || 'YouTube'));
   info.append(element('div', 'why', video.reason || 'Discovered while browsing'));
   const actions = element('div', 'feed-actions');
   actions.append(
