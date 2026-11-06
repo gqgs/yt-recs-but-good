@@ -146,6 +146,10 @@ test('full reset pauses collection and cannot immediately reimport old candidate
   const summary = await message({ type: 'GET_POPUP_DATA' });
   assert.equal(summary.result.paused, true);
   assert.equal(summary.result.counts.candidates, 0);
+  const home = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(home.ok, true);
+  assert.equal(home.result.paused, true);
+  assert.equal(home.result.recommendations.length, 0);
   const resumed = await message({ type: 'COLLECTION_RESUME' });
   assert.equal(resumed.result.paused, false);
   await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
@@ -153,6 +157,9 @@ test('full reset pauses collection and cannot immediately reimport old candidate
   ] });
   const state = (await message({ type: 'GET_STATE' })).state;
   assert.equal(state.items['aabbccdd125'].candidate, true);
+  const home = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(home.result.paused, false);
+  assert.equal(home.result.recommendations[0].id, 'aabbccdd125');
 });
 test.after(() => { globalThis.chrome = oldChrome; });
 
