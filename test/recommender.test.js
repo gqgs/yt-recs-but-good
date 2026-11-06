@@ -65,3 +65,11 @@ test('changing recency of feedback changes preference profile', () => {
   const p = preferenceProfile(items, NOW, 30);
   assert.ok(p.positive.rust > p.positive.physics);
 });
+
+test('saved publication dates age over time instead of keeping stale relative labels', () => {
+  const items = {
+    a: video('a', 'Old video', { publishedText: '1 day ago', publishedAt: NOW - 200 * 86_400_000 }),
+    b: video('b', 'Fresh video', { publishedText: '10 days ago', publishedAt: NOW - 86_400_000 })
+  };
+  assert.equal(rankVideos(items, { mode: 'recent' }, NOW)[0].id, 'b');
+});
