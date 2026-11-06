@@ -92,6 +92,38 @@ where YouTube provides that information, using a familiar line such as
   run a new opt-in API sync; missing metadata is omitted, not fabricated.
 - Video view counts are not refreshed continuously in the background.
 
+## Safe data reset and cache management
+
+A previous popup reset could cause a severe browser stall when large storage
+snapshots were repeatedly read and re-ranked while the Home page and popup
+responded to storage changes. The new implementation minimizes the data sent
+to the popup and batches UI updates.
+
+- **Clear candidates only:** The popup can delete the gathered recommendation
+  pool without deleting your liked examples, subscriptions, visited-video IDs,
+  or other viewing history. This is the recommended way to refresh collected
+  candidates and metadata.
+- **Delete all data:** This clears the entire local recommendation database and
+  **pauses further collection** until you explicitly press **Resume collection**
+  in the popup. That prevents YouTube Home from immediately repopulating the
+  database as soon as it is emptied.
+- **Resume collection:** Once resumed, reload YouTube or visit subscriptions
+  to gather new candidates. The full reset does not affect your actual YouTube
+  account.
+- **Export local data:** The large full-dataset snapshot is only transferred
+  into the popup when you explicitly export it, not every time the UI updates.
+- Popup and homepage storage reactions are debounced to avoid redundant
+  recommendation recalculations. Full resets and candidate-pool resets are
+  serialized with other storage writes.
+
+**If Brave froze during an earlier reset:** restart Brave, disable the
+extension temporarily if needed, and reload the updated unpacked extension.
+Do not clear global Brave browsing data to repair extension state.
+
+Note: the freeze itself was not reproduced in an interactive Brave session,
+so this is a prevention-oriented fix based on the code paths rather than a
+confirmed root cause.
+
 ## Homepage quality-of-life fixes
 
 - **Actual video titles:** candidate extraction now finds explicit title elements before considering the video's watch link. Thumbnail overlays like "Watch" or video-duration badges are not used as titles.
