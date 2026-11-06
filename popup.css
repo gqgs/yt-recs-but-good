@@ -74,3 +74,9 @@ h2{font-size:14px;margin:0;letter-spacing:-.25px}
 .api-import button{padding:9px 12px;border-radius:7px;font-weight:650}
 .api-import button:disabled{opacity:.6;cursor:wait}
 .api-import a{color:#c1b2ff}
+
+.history-import{margin-top:12px;padding:12px;border:1px solid #343446;border-radius:10px;background:#14151d}
+.history-import h2{font-size:13px}
+.history-import p{font-size:11px;line-height:1.5;color:#a3a5b4}
+.history-import button{padding:9px 12px;border-radius:7px}
+.history-import button:disabled{opacity:.6;cursor:wait}
