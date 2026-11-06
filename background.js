@@ -354,9 +354,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       const unseen = items.filter(v =>
         v.candidate && !v.watchedAt && !v.visitedAt && !v.hasResume &&
         v.feedback !== 'like' && v.feedback !== 'less').length;
+      const paused = (await chrome.storage.local.get(PAUSED_KEY))[PAUSED_KEY] === true;
       return { recommendations: rankVideos(state.items, settings).map(video => ({
         ...video, metadataLine: formatMetadataLine(video)
       })),
+        paused,
         counts: { likes, unseen, candidates: items.filter(v => v.candidate).length } };
     }).then(result => reply({ ok: true, result }),
       e => reply({ ok: false, error: String(e) }));
