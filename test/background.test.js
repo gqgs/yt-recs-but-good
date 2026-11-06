@@ -53,7 +53,7 @@ test('records candidates, ranks on worker, and applies explicit feedback', async
   assert.equal(before.ok, true);
   assert.equal(before.result.counts.likes, 1);
   assert.equal(before.result.recommendations[0].id, VID_B);
-  assert.match(before.result.recommendations[0].metadataLine, /267\\.4K views|267K views/);
+  assert.match(before.result.recommendations[0].metadataLine, /267\.4K views|267K views/);
   const saved = await message({ type: 'GET_STATE' });
   assert.equal(saved.state.items[VID_B].publishedAt, Date.parse('2026-11-06T00:00:00Z'));
   assert.equal(saved.state.items[VID_B].subscribed, true);
@@ -125,5 +125,5 @@ test('records view metadata discovered from page cards and prefers newer API sta
   assert.equal(state.items[ID].viewCount, 50234);
   assert.equal(state.items[ID].publishedAt, Date.parse('2025-05-01T00:00:00Z'));
   const result = await message({ type: 'GET_RECOMMENDATIONS' });
-  assert.match(result.result.recommendations.find(v => v.id === ID).metadataLine, /50\\.2K views/);
+  assert.match(result.result.recommendations.find(v => v.id === ID).metadataLine, /50\.2K views/);
 });
