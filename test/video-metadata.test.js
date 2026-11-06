@@ -33,3 +33,8 @@ test('formats fully spelled out accessibility view counts', () => {
   assert.equal(formatViewCount({ viewCountText: '1.7 million views' }), '1.7M views');
   assert.equal(formatViewCount({ viewCountText: '42 thousand views' }), '42K views');
 });
+
+test('legacy subday timestamps no longer show just now when they were hours old', () => {
+  const item = { publishedText: '4 hours ago', firstSeenAt: NOW, publishedAt: NOW };
+  assert.equal(formatUploadAge(item, NOW + 3600000), '5 hours ago');
+});
