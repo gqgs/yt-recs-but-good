@@ -306,7 +306,7 @@ const recommendations = rankVideos(items, { mode: 'personalized', diversity: 55,
 
 ## Privacy and limitations
 
-The extension requests `storage` and `identity`, plus access to `https://www.youtube.com/*` and `https://www.googleapis.com/*`. The `history` permission is **optional** and requested only after you click the history-import button. Only explicit API sync invokes Google OAuth; the normal recommender does not access Google credentials. It does not send browsing history to a project server. Exported JSON is sensitive because it contains viewing preferences; keep it private.
+The extension requests `storage` and `identity`, plus access to `https://www.youtube.com/*` and `https://www.googleapis.com/*`. The `history` permission is **optional** and requested only after you click the history-import button. Browsing-based recommendations don't require OAuth; optional homepage refresh may use an already-authorized session token or attempt a silent OAuth flow, while manual API sync may open Google consent. It does not send browsing history to a project server. Exported JSON is sensitive because it contains viewing preferences; keep it private.
 
 Recommending only from the observed feed may reinforce YouTube's own candidate-selection biases. The future independent discovery pipeline should use the same preference and ranking engine, with a broader source of recent videos.
 
