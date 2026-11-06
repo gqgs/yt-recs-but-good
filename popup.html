@@ -57,6 +57,29 @@
       <button id="api-sync" class="secondary">Sync from YouTube API</button>
       <p id="api-sync-status" role="status" aria-live="polite">Requires a Google OAuth client ID in the extension manifest. <a href="https://github.com/gqgs/yt-recs-but-good#optional-google-api-import" target="_blank" rel="noopener noreferrer">Setup guide</a></p>
     </section>
+    <section class="candidate-refresh" aria-labelledby="candidate-refresh-title">
+      <h2 id="candidate-refresh-title">Keep recommendations fresh</h2>
+      <label class="checkbox" for="auto-refresh-enabled">
+        <input id="auto-refresh-enabled" type="checkbox" checked>
+        Check for new uploads when opening YouTube Home
+      </label>
+      <label for="refresh-ttl">Minimum time between successful checks</label>
+      <select id="refresh-ttl">
+        <option value="15">15 minutes</option>
+        <option value="30">30 minutes</option>
+        <option value="60" selected>1 hour</option>
+        <option value="120">2 hours</option>
+        <option value="360">6 hours</option>
+        <option value="1440">24 hours</option>
+      </select>
+      <div class="candidate-refresh-status">
+        <button type="button" id="refresh-now" class="secondary">Refresh uploads now</button>
+        <p id="candidate-refresh-status" role="status" aria-live="polite">Never updated</p>
+      </div>
+      <p class="candidate-refresh-note">Automatic checks need YouTube API authorization.
+      They happen only when you visit Home, not continuously in the background.
+      Use the API Sync button above to connect your account first.</p>
+    </section>
     <section class="history-import" aria-labelledby="history-title">
       <h2 id="history-title">Avoid recommendations you've already opened</h2>
       <p>Import YouTube watch-page visits from this browser. This is optional, and visiting a page doesn't prove you watched it. Browser permission grants broader history access, but only YouTube video IDs are retained.</p>
@@ -97,7 +120,7 @@
       <button id="reset-data" class="text-button danger">Delete all data</button>
     </section>
     <p id="reset-status" role="status" aria-live="polite"></p>
-    <p class="disclaimer">Use YouTube's Like button as explicit feedback. Popup ratings affect this extension only. Videos are collected when you browse; no upload polling or Google login is used.</p>
+    <p class="disclaimer">Use YouTube's Like button as explicit feedback. Local browsing works without Google login; automatic subscribed-channel refresh requires optional API authorization.</p>
     <p class="error" id="error" role="alert" hidden></p>
   </main>
   <section id="confirm-overlay" class="confirm-overlay" hidden>
