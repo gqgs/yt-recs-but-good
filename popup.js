@@ -1,4 +1,3 @@
-import { rankVideos } from './lib/recommender.js';
 import { formatMetadataLine } from './lib/video-metadata.js';
 
 const SETTINGS_KEY = 'yt-recs-settings-v1';
@@ -7,7 +6,9 @@ const API_SYNC_KEY = 'yt-recs-api-sync-v1';
 const defaults = { mode: 'personalized', diversity: 55, exploration: 15,
   halfLifeDays: 90, showSeen: false, discoveryOnly: true, limit: 30 };
 let settings = { ...defaults };
-let snapshot = { items: {}, channels: {}, events: [] };
+let snapshot = { counts: { liked: 0, candidates: 0, unseen: 0 }, recommendations: [], paused: false };
+let resetting = false;
+let refreshTimer = null;
 const $ = id => document.getElementById(id);
 
 function request(msg) {
@@ -56,7 +57,7 @@ function setMode(mode) {
     tab.classList.toggle('selected', selected);
     tab.setAttribute('aria-pressed', String(selected));
   }
-  void persistSettings(); render();
+  void persistSettings(); scheduleRefresh();
 }
 function syncOptions() {
   $('diversity').value = settings.diversity;
@@ -73,8 +74,16 @@ function syncOptions() {
   }
 }
 async function refresh() {
-  snapshot = (await request({ type: 'GET_STATE' })).state;
+  if (resetting) return;
+  snapshot = (await request({ type: 'GET_POPUP_DATA' })).result;
   render();
+}
+function scheduleRefresh() {
+  if (resetting || refreshTimer !== null) return;
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null;
+    refresh().catch(showError);
+  }, 300);
 }
 async function feedback(id, rating) {
   await request({ type: 'FEEDBACK', id, rating, origin: 'popup' });
@@ -114,27 +123,26 @@ function renderVideo(video, index) {
   return card;
 }
 function render() {
-  const items = Object.values(snapshot.items || {});
-  const liked = items.filter(v => v.feedback === 'like');
-  const candidates = items.filter(v => v.candidate);
-  const unseen = candidates.filter(v => !v.watchedAt && !v.visitedAt && !v.hasResume &&
-    v.feedback !== 'like' && v.feedback !== 'less');
-  $('likes-count').textContent = String(liked.length);
-  $('candidates-count').textContent = String(candidates.length);
-  $('unseen-count').textContent = String(unseen.length);
-  $('onboarding').hidden = liked.length > 0 && candidates.length > 0;
-
+  const counts = snapshot.counts || { liked: 0, candidates: 0, unseen: 0 };
+  $('likes-count').textContent = String(counts.liked || 0);
+  $('candidates-count').textContent = String(counts.candidates || 0);
+  $('unseen-count').textContent = String(counts.unseen || 0);
+  const paused = snapshot.paused === true;
+  $('collection-paused').hidden = !paused;
+  $('resume-collection').disabled = !paused;
+  $('onboarding').hidden = paused || ((counts.liked || 0) > 0 && (counts.candidates || 0) > 0);
   const results = $('results');
   results.replaceChildren();
-  const ranked = rankVideos(snapshot.items, settings);
+  const ranked = snapshot.recommendations || [];
   if (!ranked.length) {
-    results.append(element('div', 'empty', candidates.length
-      ? 'No eligible videos left in this pool. Browse subscriptions for fresh candidates, or enable previously watched videos.'
-      : 'No candidates collected yet. Visit YouTube subscriptions, home, or search and scroll to collect some.'));
+    results.append(element('div', 'empty', paused
+      ? 'Collection is paused after deleting all data. Resume it explicitly when ready.'
+      : counts.candidates
+        ? 'No eligible recommendations. Browse subscriptions for more candidates or change your filters.'
+        : 'No candidates yet. Visit subscriptions or perform the optional import.'));
     return;
   }
-  results.append(element('div', 'ranking-note',
-    ranked.length + ' results · ' + ({ personalized: 'Preference first', explore: 'Exploration first', recent: 'Newest first' }[settings.mode])));
+  results.append(element('div', 'ranking-note', ranked.length + ' preview recommendations'));
   for (const [i, video] of ranked.entries()) results.append(renderVideo(video, i));
 }
 
@@ -180,7 +188,7 @@ async function initialize() {
   }
   $('half-life').addEventListener('change', () => {
     settings.halfLifeDays = Number($('half-life').value);
-    void persistSettings(); render();
+    void persistSettings(); scheduleRefresh();
   });
   $('show-seen').addEventListener('change', () => {
     settings.showSeen = $('show-seen').checked;
@@ -217,24 +225,64 @@ async function initialize() {
   });
   $('open-subs').addEventListener('click', () => open('https://www.youtube.com/feed/subscriptions'));
   $('open-likes').addEventListener('click', () => open('https://www.youtube.com/playlist?list=LL'));
-  $('export-data').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), state: snapshot, settings }, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'yt-recs-but-good-export.json';
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 3000);
+  $('export-data').addEventListener('click', async () => {
+    try {
+      // Full data is transferred to the popup only on demand, never on every
+      // onChanged event or during a reset.
+      const fullState = (await request({ type: 'GET_STATE' })).state;
+      const blob = new Blob([JSON.stringify({
+        exportedAt: new Date().toISOString(), state: fullState, settings
+      }, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'yt-recs-but-good-export.json';
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
+    } catch (error) { showError(error); }
+  });
+  $('clear-candidates').addEventListener('click', async () => {
+    if (!confirm('Clear collected recommendation candidates while keeping likes, subscriptions and viewing history?')) return;
+    try {
+      $('clear-candidates').disabled = true;
+      const response = await request({ type: 'CLEAR_CANDIDATES' });
+      $('reset-status').textContent = 'Cleared ' + response.result.removed +
+        ' candidate records. Your likes and history were retained.';
+      await refresh();
+    } catch (error) { showError(error); }
+    finally { $('clear-candidates').disabled = false; }
   });
   $('reset-data').addEventListener('click', async () => {
-    if (!confirm('Delete all locally collected videos, likes, history, and subscriptions? This does not affect YouTube.')) return;
-    try { await request({ type: 'RESET' }); await refresh(); } catch (error) { showError(error); }
+    if (!confirm('Permanently delete all locally collected videos, likes, history and subscriptions? Collection will pause until you resume it. Your YouTube account is unaffected.')) return;
+    resetting = true;
+    $('reset-data').disabled = true;
+    $('clear-candidates').disabled = true;
+    $('reset-status').textContent = 'Clearing extension data…';
+    try {
+      await request({ type: 'RESET' });
+      $('reset-status').textContent = 'Data cleared. Automatic collection is paused until you choose Resume.';
+    } catch (error) {
+      showError(error);
+      $('reset-status').textContent = 'Could not complete reset.';
+    } finally {
+      resetting = false;
+      $('reset-data').disabled = false;
+      $('clear-candidates').disabled = false;
+      await refresh().catch(showError);
+    }
+  });
+  $('resume-collection').addEventListener('click', async () => {
+    try {
+      await request({ type: 'COLLECTION_RESUME' });
+      $('reset-status').textContent = 'Collection resumed. Reload YouTube to gather fresh candidates.';
+      await refresh();
+    } catch (error) { showError(error); }
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     if (changes[HOME_KEY]) $('replace-home').checked = changes[HOME_KEY].newValue !== false;
     if (changes[API_SYNC_KEY]) renderSyncStatus(changes[API_SYNC_KEY].newValue);
-    if (changes['yt-recs-state-v1']) refresh().catch(showError);
+    if (changes['yt-recs-state-v1'] || changes['yt-recs-collection-paused-v1']) scheduleRefresh();
   });
   await refresh();
 }
