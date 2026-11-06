@@ -331,6 +331,12 @@
       else { scheduleMount(); void refresh(); requestCandidateRefresh(false); }
     });
     window.addEventListener('popstate', scheduleMount);
+    // Revisiting a tab left open for hours is effectively another Home visit.
+    // This does not set a periodic timer or poll while the page stays hidden.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && onHome() && enabled)
+        requestCandidateRefresh(false);
+    });
     // YouTube uses client-side navigation and may replace the browse element.
     new MutationObserver(() => {
       if ((onHome() && !root?.isConnected) || (!onHome() && root)) scheduleMount();
