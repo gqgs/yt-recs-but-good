@@ -261,6 +261,9 @@ async function runApiSync() {
   // Initiate launchWebAuthFlow synchronously from the UI-triggered message.
   // Do not await chrome.storage before asking Brave to open the auth window.
   const authorization = getGoogleAccessToken({ interactive: true });
+  // Attach a rejection observer immediately. A fast OAuth error can otherwise
+  // reject before the asynchronous storage-status write completes.
+  void authorization.catch(() => {});
   try {
     await syncStatus('auth',
       'Waiting for Google authorization. Look for a separate Brave sign-in window.');
