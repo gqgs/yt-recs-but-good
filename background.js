@@ -258,9 +258,13 @@ async function importSubscriptions(subs) {
   });
 }
 async function runApiSync() {
+  // Initiate launchWebAuthFlow synchronously from the UI-triggered message.
+  // Do not await chrome.storage before asking Brave to open the auth window.
+  const authorization = getGoogleAccessToken({ interactive: true });
   try {
-    await syncStatus('auth', 'Authorizing with your Google account…');
-    const token = await getGoogleAccessToken({ interactive: true });
+    await syncStatus('auth',
+      'Waiting for Google authorization. Look for a separate Brave sign-in window.');
+    const token = await authorization;
     await syncStatus('likes', 'Importing your most recent 1,000 liked videos…');
     const likes = await fetchLikedVideos(token);
     await importVideos('liked', likes);
