@@ -1,8 +1,10 @@
 import { relativeAgeDays, rankVideos } from './lib/recommender.js';
+import { fetchLikedVideos, fetchSubscriptions, fetchUploads } from './lib/api-sync.js';
 
 // Privacy-first persistence and event log. All activity remains in chrome.storage.local.
 const KEY = 'yt-recs-state-v1';
 const SETTINGS_KEY = 'yt-recs-settings-v1';
+const API_SYNC_KEY = 'yt-recs-api-sync-v1';
 const MAX_ITEMS = 4000;
 const MAX_EVENTS = 1500;
 const clean = (value, length = 200) => String(value || '').trim().slice(0, length);
@@ -50,7 +52,9 @@ function updateItem(state, data, now, source = '') {
     thumbnail: 'https://i.ytimg.com/vi/' + data.id + '/mqdefault.jpg',
     url: 'https://www.youtube.com/watch?v=' + data.id,
     publishedText: clean(data.publishedText, 80) || old.publishedText || '',
-    publishedAt: old.publishedAt || estimatePublishedAt(data.publishedText, now),
+    publishedAt: old.publishedAt ||
+      (data.publishedAt && Number.isFinite(Date.parse(data.publishedAt)) ? Date.parse(data.publishedAt) : null) ||
+      estimatePublishedAt(data.publishedText, now),
     candidate,
     subscribed: typeof knownSubscription === 'boolean' ? knownSubscription : Boolean(data.subscribed || old.subscribed),
     source: clean(data.source, 50) || source || old.source || '',
@@ -138,8 +142,99 @@ function process(state, msg) {
 
 // Serialize all writes so rapid content-script and popup events cannot overwrite each other.
 let queue = Promise.resolve();
+
+function enqueueWrite(fn) {
+  const task = queue.then(async () => {
+    const state = await readState();
+    const result = await fn(state);
+    await saveState(state);
+    return result;
+  });
+  queue = task.catch(() => {});
+  return task;
+}
+
+let apiSyncPromise = null;
+async function syncStatus(phase, message, counts = {}) {
+  await chrome.storage.local.set({ [API_SYNC_KEY]: {
+    phase, message, counts, updatedAt: Date.now()
+  } });
+}
+async function importVideos(source, videos) {
+  for (let i = 0; i < videos.length; i += 120) {
+    const batch = videos.slice(i, i + 120);
+    await enqueueWrite(state => process(state, { type: 'CANDIDATES', source, videos: batch }));
+  }
+}
+async function importSubscriptions(subs) {
+  await enqueueWrite(state => {
+    const now = Date.now();
+    for (const s of subs) {
+      state.channels[s.channelId] = {
+        name: s.channel, subscribed: true, updatedAt: now
+      };
+    }
+    // Existing DOM-collected candidates may have a matching canonical channel ID.
+    for (const item of Object.values(state.items)) {
+      if (item.channelId && state.channels[item.channelId]?.subscribed) item.subscribed = true;
+    }
+    event(state, 'api-subscriptions-imported', '', subs.length, now);
+  });
+}
+async function runApiSync() {
+  try {
+    await syncStatus('auth', 'Authorizing with your Google account…');
+    const result = await chrome.identity.getAuthToken({ interactive: true });
+    const token = typeof result === 'string' ? result : result?.token;
+    if (!token) throw new Error('Google authorization did not return a token.');
+    await syncStatus('likes', 'Importing your most recent 1,000 liked videos…');
+    const likes = await fetchLikedVideos(token);
+    await importVideos('liked', likes);
+    await syncStatus('subscriptions', 'Importing your subscriptions…', { likes: likes.length });
+    const subs = await fetchSubscriptions(token);
+    await importSubscriptions(subs);
+    await syncStatus('uploads', 'Collecting recent uploads from subscribed channels…', {
+      likes: likes.length, subscriptions: subs.length, uploads: 0
+    });
+    let uploads = 0;
+    const imported = await fetchUploads(token, subs, {
+      maxChannels: 200,
+      maxPerChannel: 8,
+      onBatch: async (videos, processed, total) => {
+        await importVideos('subscriptions', videos);
+        uploads += videos.length;
+        if (processed % 20 === 0 || processed === total) {
+          await syncStatus('uploads', 'Imported uploads from ' + processed + '/' + total + ' channels', {
+            likes: likes.length, subscriptions: subs.length, uploads
+          });
+        }
+      }
+    });
+    await syncStatus('complete', 'Google import complete. Open YouTube Home to see your feed.', {
+      likes: likes.length, subscriptions: subs.length, uploads: imported.videos,
+      channelsScanned: imported.channels
+    });
+  } catch (error) {
+    await syncStatus('error', String(error?.message || error));
+  }
+}
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (!msg || typeof msg.type !== 'string') return false;
+  if (msg.type === 'API_SYNC_START') {
+    const oauth = chrome.runtime.getManifest().oauth2?.client_id || '';
+    if (!oauth || oauth.includes('REPLACE_WITH')) {
+      reply({ ok: false, error: 'Configure a Google OAuth Chrome Extension client ID in manifest.json first. See README.md.' });
+      return false;
+    }
+    if (apiSyncPromise) {
+      reply({ ok: true, result: { started: false, running: true } });
+      return false;
+    }
+    // The authorization prompt is only opened after the user explicitly clicks Sync.
+    apiSyncPromise = runApiSync().finally(() => { apiSyncPromise = null; });
+    reply({ ok: true, result: { started: true } });
+    return false;
+  }
   if (msg.type === 'GET_STATE') {
     queue.then(readState).then(s => reply({ ok: true, state: s }),
       e => reply({ ok: false, error: String(e) }));
