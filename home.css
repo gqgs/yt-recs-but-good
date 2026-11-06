@@ -106,3 +106,12 @@ html.ytrbg-home-active ytd-browse[page-subtype="home"] ytd-rich-grid-renderer {
 
 #ytrbg-home .ytrbg-channel{font-size:13px;color:var(--yt-spec-text-secondary,#aaa);line-height:1.42;font-weight:500;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #ytrbg-home .ytrbg-meta:empty{display:none}
+
+/* Keep the native-feed toggle inside the lower control bar, safely below
+   YouTube's fixed masthead / chip-cloud overlays. */
+#ytrbg-home .ytrbg-header{display:block;margin-bottom:22px}
+#ytrbg-home .ytrbg-toolbar{flex-wrap:wrap;gap:12px}
+#ytrbg-home .ytrbg-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0}
+#ytrbg-home .ytrbg-controls .ytrbg-native{position:static;display:inline-flex;align-items:center;justify-content:center;min-height:34px;margin:0;padding:7px 14px;max-width:100%;white-space:normal;flex-shrink:0}
+#ytrbg-home .ytrbg-stats{white-space:normal}
+@media(max-width:650px){#ytrbg-home .ytrbg-controls{align-items:flex-start;flex-direction:column}}
