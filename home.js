@@ -152,7 +152,7 @@
     const title = link(video.title, video.url, 'ytrbg-title');
     title.title = video.title;
     const channel = node('div', 'ytrbg-channel', video.channel || 'Channel unavailable');
-    const meta = node('div', 'ytrbg-meta', video.publishedText || '');
+    const meta = node('div', 'ytrbg-meta', video.metadataLine || '');
     const explain = node('details', 'ytrbg-why');
     const summary = node('summary', '', 'Why this video?');
     const explanation = node('p', '', video.reason || 'Selected by your local recommendation policy.');
