@@ -45,6 +45,16 @@
       return response;
     });
   }
+  function requestCandidateRefresh(force = false) {
+    if (!enabled || !onHome()) return;
+    send({ type: 'REFRESH_CANDIDATES', force, interactive: force })
+      .then(({ result }) => {
+        // If the user requested a forced update but setup is incomplete, the
+        // worker persists a readable status rather than opening a prompt.
+        if (force && result?.reason && result.reason !== 'fresh-or-throttled')
+          scheduleRefresh();
+      }).catch(showError);
+  }
   function setEnabled(value) {
     // Persist so the popup and the Home page always agree.
     return chrome.storage.local.set({ [HOME_KEY]: Boolean(value) });
@@ -188,7 +198,7 @@
     visibleCount = next;
     updatePagination();
   }
-  function render({ recommendations, counts, paused = false }) {
+  function render({ recommendations, counts, paused = false, refresh = {} }) {
     if (!ensureRoot() || !enabled) return;
     scrollObserver?.disconnect();
     scrollObserver = null;
@@ -203,7 +213,16 @@
     controls.append(makeTabs(), button('Original YouTube', 'ytrbg-native', () => {
       setEnabled(false).catch(showError);
     }));
-    toolbar.append(controls, node('div', 'ytrbg-stats',
+    const sync = node('div', 'ytrbg-sync');
+    const refreshButton = button('Refresh uploads', 'ytrbg-refresh-button', () => requestCandidateRefresh(true));
+    refreshButton.disabled = paused || refresh.phase === 'running';
+    refreshButton.title = 'Check new uploads from subscribed channels (requires YouTube API authorization)';
+    const status = node('span', 'ytrbg-refresh-status', refresh.label || 'No upload refresh yet');
+    status.title = refresh.message || status.textContent;
+    status.setAttribute('role', 'status');
+    sync.append(refreshButton, status);
+    toolbar.append(controls, sync);
+    toolbar.append(node('div', 'ytrbg-stats',
       counts.likes + ' likes · ' + counts.unseen + ' unseen candidates · ' +
       (settings.discoveryOnly !== false ? 'Discovery sources only' : 'All sources')));
     children.push(toolbar);
@@ -290,21 +309,26 @@
       settings = { ...settings, ...values[SETTINGS_KEY] };
     ensureRoot();
     void refresh();
+    requestCandidateRefresh(false);
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
-      if (changes[HOME_KEY]) enabled = changes[HOME_KEY].newValue !== false;
+      if (changes[HOME_KEY]) {
+        enabled = changes[HOME_KEY].newValue !== false;
+        if (enabled) requestCandidateRefresh(false);
+      }
       if (changes[SETTINGS_KEY]) {
         const next = { mode: 'personalized', ...(changes[SETTINGS_KEY].newValue || {}) };
         if (next.mode !== settings.mode) visibleCount = 0;
         settings = next;
       }
       if (changes[HOME_KEY] || changes[SETTINGS_KEY] ||
-          changes['yt-recs-state-v1'] || changes['yt-recs-collection-paused-v1'])
+          changes['yt-recs-state-v1'] || changes['yt-recs-collection-paused-v1'] ||
+          changes['yt-recs-candidate-refresh-v1'])
         scheduleRefresh();
     });
     document.addEventListener('yt-navigate-finish', () => {
       if (!onHome()) cleanUp();
-      else { scheduleMount(); void refresh(); }
+      else { scheduleMount(); void refresh(); requestCandidateRefresh(false); }
     });
     window.addEventListener('popstate', scheduleMount);
     // YouTube uses client-side navigation and may replace the browse element.
