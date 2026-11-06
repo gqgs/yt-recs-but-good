@@ -65,6 +65,36 @@ again. **Resume collection** re-enables collection; clearing only candidates
 invalidates the previous refresh timestamp. No OAuth secrets or access tokens
 are written to persistent local storage.
 
+## Troubleshooting a stalled Google authorization
+
+If **Sync from YouTube API** stays on **"Authorizing with your Google
+account…"**, that is the OAuth stage: no likes or uploads have been imported
+yet. Brave's `chrome.identity.launchWebAuthFlow()` opens a separate browser
+authorization window and completes only when Google redirects to the registered
+`https://<extension-id>.chromiumapp.org/oauth2` callback.
+
+1. Look for a separate Google sign-in window behind Brave or on another desktop.
+   Complete the consent screen there. If Google shows an error, open its **error
+   details** and record the error name and description, not any tokens or full
+   callback URL.
+2. Confirm that the popup's **Copy redirect URI** matches the *Authorized
+   redirect URI* on the **Web application** OAuth client **exactly**, including
+   `/oauth2` without a trailing slash.
+3. Confirm that `manifest.json` uses that same Web application client ID,
+   reload the unpacked extension in `brave://extensions`, and verify your
+   Google account is a test user under the app's Audience configuration.
+4. If no window opens or Google's redirect never completes, the flow now times
+   out after **two minutes** and displays a specific error. The popup also
+   recognizes authorization states left behind if the MV3 service worker
+   terminated, rather than disabling Sync forever. Close any leftover
+   authorization window before retrying.
+
+The extension starts the interactive identity call immediately from the
+user-triggered Sync message, before waiting for storage writes. This avoids
+losing the browser's user-activation context. Automatic homepage refresh remains
+**non-interactive**. Never paste an access token, complete redirect URL, or
+client secret into a public issue.
+
 ## Optional Google API import
 
 You can import your likes, subscriptions, and a bounded sample of subscribed-channel uploads **without manually scrolling**. This requires one-time Google OAuth configuration; ordinary browsing and Home replacement do not require it.
