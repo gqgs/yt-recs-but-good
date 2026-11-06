@@ -1,4 +1,5 @@
 import { relativeAgeDays, rankVideos } from './lib/recommender.js';
+import { formatMetadataLine } from './lib/video-metadata.js';
 import { fetchLikedVideos, fetchSubscriptions, fetchUploads } from './lib/api-sync.js';
 
 // Privacy-first persistence and event log. All activity remains in chrome.storage.local.
@@ -66,9 +67,15 @@ function updateItem(state, data, now, source = '') {
     thumbnail: 'https://i.ytimg.com/vi/' + data.id + '/mqdefault.jpg',
     url: 'https://www.youtube.com/watch?v=' + data.id,
     publishedText: clean(data.publishedText, 80) || old.publishedText || '',
-    publishedAt: old.publishedAt ||
-      (data.publishedAt && Number.isFinite(Date.parse(data.publishedAt)) ? Date.parse(data.publishedAt) : null) ||
-      estimatePublishedAt(data.publishedText, now),
+    viewCountText: clean(data.viewCountText, 40) || old.viewCountText || '',
+    viewCount: data.viewCount !== null && data.viewCount !== undefined &&
+      data.viewCount !== '' && Number.isSafeInteger(Number(data.viewCount)) &&
+      Number(data.viewCount) >= 0 ? Number(data.viewCount) : (old.viewCount ?? null),
+    // An API timestamp is exact and should replace older estimates from
+    // relative DOM labels such as "2 days ago".
+    publishedAt: (data.publishedAt && Number.isFinite(Date.parse(data.publishedAt))
+      ? Date.parse(data.publishedAt) : null) ||
+      old.publishedAt || estimatePublishedAt(data.publishedText, now),
     candidate,
     subscribed: typeof knownSubscription === 'boolean' ? knownSubscription : Boolean(data.subscribed || old.subscribed),
     source: clean(data.source, 50) || source || old.source || '',
@@ -317,7 +324,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       const unseen = items.filter(v =>
         v.candidate && !v.watchedAt && !v.visitedAt && !v.hasResume &&
         v.feedback !== 'like' && v.feedback !== 'less').length;
-      return { recommendations: rankVideos(state.items, settings),
+      return { recommendations: rankVideos(state.items, settings).map(video => ({
+        ...video, metadataLine: formatMetadataLine(video)
+      })),
         counts: { likes, unseen, candidates: items.filter(v => v.candidate).length } };
     }).then(result => reply({ ok: true, result }),
       e => reply({ ok: false, error: String(e) }));
