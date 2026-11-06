@@ -43,7 +43,7 @@ function updateItem(state, data, now, source = '') {
     url: 'https://www.youtube.com/watch?v=' + data.id,
     publishedText: clean(data.publishedText, 80) || old.publishedText || '',
     candidate,
-    subscribed: Boolean(data.subscribed || knownSubscription || old.subscribed),
+    subscribed: typeof knownSubscription === 'boolean' ? knownSubscription : Boolean(data.subscribed || old.subscribed),
     source: clean(data.source, 50) || source || old.source || '',
     firstSeenAt: old.firstSeenAt || now,
     lastSeenAt: now
@@ -83,6 +83,15 @@ function process(state, msg) {
         event(state, 'watch', v.id, null, now);
       }
       return { recorded: Boolean(v) };
+    }
+    case 'MARK_SEEN': {
+      const v = state.items[msg.id];
+      if (!v) return { recorded: false };
+      if (!v.watchedAt) {
+        v.watchedAt = now;
+        event(state, 'manually-seen', v.id, null, now);
+      }
+      return { recorded: true };
     }
     case 'PROGRESS': {
       const v = state.items[msg.id];
