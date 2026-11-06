@@ -21,6 +21,23 @@ You can also start from scratch: use YouTube's normal **Like** button on videos 
 
 **Expected behavior:** Use actual likes as explicit feedback when possible. A watched video is not automatically treated as liked; ignoring or skipping a video isn't automatically treated as dislike. If you don't like a recommendation, choose **Not for me**. Use **Seen** to hide something already watched elsewhere.
 
+## Unavailable subscribed-channel uploads playlists
+
+A subscribed channel's uploads playlist can be missing (YouTube API
+`playlistNotFound`, HTTP 404) or inaccessible to the current authorization
+(`playlistItemsNotAccessible`, HTTP 403). These are **per-channel** failures.
+The extension now skips those specific playlists and continues importing
+videos from the other subscribed channels rather than aborting the entire
+refresh.
+
+The popup's full-import status and the Home refresh status report how many
+playlists were unavailable. A complete failure (all playlists unavailable)
+still reports an error; API-wide authorization, quota, and other unexpected
+errors remain failures and are **not** silently ignored. View and upload
+metadata for successfully imported videos are preserved. No cache deletion,
+new permission, or OAuth reconfiguration is needed to recover from an
+individual unavailable playlist.
+
 ## Automatic candidate refresh (default: 1 hour)
 
 The personalized YouTube Home now **checks for fresh uploads when you open or return
