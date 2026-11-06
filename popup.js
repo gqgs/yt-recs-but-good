@@ -1,6 +1,7 @@
 import { rankVideos } from './lib/recommender.js';
 
 const SETTINGS_KEY = 'yt-recs-settings-v1';
+const HOME_KEY = 'yt-recs-home-enabled-v1';
 const defaults = { mode: 'personalized', diversity: 55, exploration: 15,
   halfLifeDays: 90, showSeen: false, limit: 30 };
 let settings = { ...defaults };
@@ -126,6 +127,12 @@ async function initialize() {
   const saved = (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY];
   if (saved && typeof saved === 'object') settings = { ...settings, ...saved };
   syncOptions();
+  const home = (await chrome.storage.local.get(HOME_KEY))[HOME_KEY];
+  $('replace-home').checked = home !== false;
+  $('replace-home').addEventListener('change', () => {
+    chrome.storage.local.set({ [HOME_KEY]: $('replace-home').checked }).catch(showError);
+  });
+  $('open-home').addEventListener('click', () => open('https://www.youtube.com/'));
   for (const tab of document.querySelectorAll('[data-mode]')) {
     tab.addEventListener('click', () => setMode(tab.dataset.mode));
   }
@@ -166,7 +173,9 @@ async function initialize() {
     try { await request({ type: 'RESET' }); await refresh(); } catch (error) { showError(error); }
   });
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes['yt-recs-state-v1']) refresh().catch(showError);
+    if (area !== 'local') return;
+    if (changes[HOME_KEY]) $('replace-home').checked = changes[HOME_KEY].newValue !== false;
+    if (changes['yt-recs-state-v1']) refresh().catch(showError);
   });
   await refresh();
 }
