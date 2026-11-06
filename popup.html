@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>yt-recs-but-good</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="mark">↗</span><span>yt-recs-but-good</span></div>
+    <span class="privacy">LOCAL ONLY</span>
+  </header>
+  <main>
+    <section class="intro">
+      <div class="eyebrow">YOUR ALTERNATIVE FEED</div>
+      <h1>Find something worth watching.</h1>
+      <p>Recommendations from your own feedback, not popularity. Your personalized feed lives on the YouTube Home page.</p>
+    </section>
+    <section class="home-control">
+      <div class="home-control-header">
+        <label for="replace-home"><strong>Replace YouTube Home</strong><small>Use the curated feed at youtube.com instead of the original homepage.</small></label>
+        <input id="replace-home" type="checkbox" checked>
+      </div>
+      <button id="open-home" class="primary">Open personalized homepage ↗</button>
+    </section>
+
+    <section id="collection-paused" class="paused-notice" hidden>
+      <strong>Collection paused</strong>
+      <p>Your local data was cleared. The extension will not rebuild the candidate pool until you resume it.</p>
+      <button id="resume-collection" class="primary">Resume collection</button>
+    </section>
+
+    <div class="stats" aria-label="Local dataset statistics">
+      <div><strong id="likes-count">0</strong><span>likes</span></div>
+      <div><strong id="candidates-count">0</strong><span>candidates</span></div>
+      <div><strong id="unseen-count">0</strong><span>unseen</span></div>
+    </div>
+
+    <section id="onboarding" class="onboarding" hidden>
+      <h2>Build your discovery pool</h2>
+      <p>Open your subscriptions feed and scroll to collect videos. Visit Liked videos to seed your tastes. This extension only learns from pages you visit.</p>
+      <div class="actions">
+        <button id="open-subs" class="primary">Browse subscriptions ↗</button>
+        <button id="open-likes" class="secondary">Import liked videos ↗</button>
+      </div>
+    </section>
+
+
+    <section class="api-import" aria-labelledby="api-import-title">
+      <div class="api-import-heading">
+        <h2 id="api-import-title">Automatic import</h2>
+        <span class="api-import-optional">OPTIONAL</span>
+      </div>
+      <p>One-time Google API sync of your likes, subscriptions and recent uploads. No scrolling or background polling required.</p>
+      <button id="api-sync" class="secondary">Sync from YouTube API</button>
+      <p id="api-sync-status" role="status" aria-live="polite">Requires a Google OAuth client ID in the extension manifest. <a href="https://github.com/gqgs/yt-recs-but-good#optional-google-api-import" target="_blank" rel="noopener noreferrer">Setup guide</a></p>
+    </section>
+    <section class="history-import" aria-labelledby="history-title">
+      <h2 id="history-title">Avoid recommendations you've already opened</h2>
+      <p>Import YouTube watch-page visits from this browser. This is optional, and visiting a page doesn't prove you watched it. Browser permission grants broader history access, but only YouTube video IDs are retained.</p>
+      <button type="button" id="import-history" class="secondary">Import YouTube visits from browser history</button>
+      <p id="history-status" role="status" aria-live="polite"></p>
+    </section>
+    <section class="controls">
+      <div class="section-heading">
+        <h2>Recommendations</h2>
+        <button id="toggle-options" class="text-button" aria-expanded="false">Tune <span aria-hidden="true">⌄</span></button>
+      </div>
+      <div class="tabs" role="group" aria-label="Recommendation strategy">
+        <button data-mode="personalized" class="selected" aria-pressed="true">For you</button>
+        <button data-mode="explore" aria-pressed="false">Explore</button>
+        <button data-mode="recent" aria-pressed="false">Recent</button>
+      </div>
+      <div id="options" class="options" hidden>
+        <label for="diversity">Diversity <output id="diversity-value">55%</output></label>
+        <input id="diversity" type="range" min="0" max="100" value="55">
+        <label for="exploration">Exploration <output id="exploration-value">15%</output></label>
+        <input id="exploration" type="range" min="0" max="100" value="15">
+        <label for="half-life">Preference half-life</label>
+        <select id="half-life">
+          <option value="30">30 days</option>
+          <option value="90" selected>90 days</option>
+          <option value="365">365 days</option>
+          <option value="3650">Effectively static</option>
+        </select>
+        <label class="checkbox"><input id="discovery-only" type="checkbox" checked> Only candidates from subscriptions, channels and searches (not YouTube Home/Related)</label>
+        <label class="checkbox"><input id="show-seen" type="checkbox"> Include previously opened and liked videos</label>
+      </div>
+    </section>
+
+    <section id="results" class="results" aria-live="polite"></section>
+    <section class="footer-tools">
+      <button id="export-data" class="text-button">Export local data</button>
+      <button id="clear-candidates" class="text-button">Clear candidates only</button>
+      <button id="reset-data" class="text-button danger">Delete all data</button>
+    </section>
+    <p id="reset-status" role="status" aria-live="polite"></p>
+    <p class="disclaimer">Use YouTube's Like button as explicit feedback. Popup ratings affect this extension only. Videos are collected when you browse; no upload polling or Google login is used.</p>
+    <p class="error" id="error" role="alert" hidden></p>
+  </main>
+  <section id="confirm-overlay" class="confirm-overlay" hidden>
+    <div id="confirm-panel" class="confirm-panel" role="alertdialog"
+      aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-description"></p>
+      <div class="confirm-actions">
+        <button id="confirm-cancel" type="button" class="secondary">Cancel</button>
+        <button id="confirm-proceed" type="button" class="destructive">Delete</button>
+      </div>
+    </div>
+  </section>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

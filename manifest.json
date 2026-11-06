@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "yt-recs-but-good",
+  "short_name": "yt-recs-but-good",
+  "version": "0.2.2",
+  "description": "Local-first YouTube discovery, trained by the likes you actually give.",
+  "permissions": [
+    "storage",
+    "identity"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://www.googleapis.com/*"
+  ],
+  "action": {
+    "default_title": "yt-recs-but-good",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "lib/card-extractor.js",
+        "content.js",
+        "home.js"
+      ],
+      "run_at": "document_idle",
+      "css": [
+        "home.css"
+      ]
+    }
+  ],
+  "oauth2": {
+    "client_id": "REPLACE_WITH_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/youtube.readonly"
+    ]
+  },
+  "optional_permissions": [
+    "history"
+  ]
+}

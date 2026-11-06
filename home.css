@@ -1,0 +1,117 @@
+/* Scoped homepage styles: regular YouTube pages and its player remain intact. */
+html.ytrbg-home-active ytd-browse[page-subtype="home"] ytd-rich-grid-renderer {
+  display: none !important;
+}
+#ytrbg-home {
+  display: block;
+  box-sizing: border-box;
+  max-width: 1900px;
+  margin: 0 auto;
+  padding: 30px 28px 48px;
+  color: var(--yt-spec-text-primary, #f1f1f1);
+  font-family: Roboto, Arial, sans-serif;
+}
+#ytrbg-home, #ytrbg-home * {box-sizing:border-box}
+#ytrbg-home button, #ytrbg-home a {font:inherit;cursor:pointer}
+#ytrbg-home button:focus-visible, #ytrbg-home a:focus-visible {
+  outline: 2px solid #a4a0ff; outline-offset: 3px;
+}
+#ytrbg-home .ytrbg-header {
+  display:flex;align-items:start;justify-content:space-between;gap:20px;margin:0 0 27px;
+}
+#ytrbg-home .ytrbg-eyebrow {
+  color:#aaa3fa;letter-spacing:1.5px;font-size:10px;font-weight:800;margin:0 0 8px;
+}
+#ytrbg-home h1 {font-size:30px;font-weight:750;line-height:1.15;margin:0 0 8px;letter-spacing:-.7px}
+#ytrbg-home .ytrbg-heading p {font-size:14px;color:var(--yt-spec-text-secondary,#aaa);margin:0}
+#ytrbg-home .ytrbg-native {
+  white-space:nowrap;color:inherit;border:1px solid #74747a;background:transparent;
+  border-radius:20px;padding:10px 15px;font-size:12px;font-weight:600;
+}
+#ytrbg-home .ytrbg-native:hover {background:rgba(130,130,130,.15)}
+#ytrbg-home .ytrbg-toolbar {
+  display:flex;align-items:center;justify-content:space-between;gap:15px;
+  border-bottom:1px solid var(--yt-spec-10-percent-layer, #444);padding-bottom:16px;margin-bottom:25px;
+}
+#ytrbg-home .ytrbg-tabs {display:flex;gap:7px;flex-wrap:wrap}
+#ytrbg-home .ytrbg-tabs button {
+  padding:9px 17px;border:0;border-radius:9px;font-size:13px;font-weight:650;
+  color:var(--yt-spec-text-primary,#eee);background:var(--yt-spec-10-percent-layer,#353535);
+}
+#ytrbg-home .ytrbg-tabs button.ytrbg-selected {background:var(--yt-spec-text-primary,#f1f1f1);color:var(--yt-spec-base-background,#0f0f0f)}
+#ytrbg-home .ytrbg-stats {font-size:12px;color:var(--yt-spec-text-secondary,#aaa);white-space:nowrap}
+#ytrbg-home .ytrbg-grid {
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));column-gap:17px;row-gap:34px;
+}
+#ytrbg-home .ytrbg-card {min-width:0}
+#ytrbg-home .ytrbg-thumbnail {
+  display:block;aspect-ratio:16 / 9;width:100%;overflow:hidden;border-radius:12px;
+  background:#242424;margin-bottom:11px;
+}
+#ytrbg-home .ytrbg-thumbnail img {display:block;width:100%;height:100%;object-fit:cover}
+#ytrbg-home .ytrbg-title {
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  color:inherit;text-decoration:none;font-size:14px;font-weight:650;line-height:1.42;
+}
+#ytrbg-home .ytrbg-title:hover {text-decoration:underline}
+#ytrbg-home .ytrbg-meta {
+  font-size:12px;color:var(--yt-spec-text-secondary,#aaa);margin:5px 0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+
+#ytrbg-home .ytrbg-why {font-size:11px;margin-top:8px;color:var(--yt-spec-text-secondary,#aaa)}
+#ytrbg-home .ytrbg-why summary {display:inline-block;cursor:pointer;list-style:none;opacity:.75;font-size:11px}
+#ytrbg-home .ytrbg-why summary::-webkit-details-marker{display:none}
+#ytrbg-home .ytrbg-why summary:hover{opacity:1;text-decoration:underline}
+#ytrbg-home .ytrbg-why summary:focus-visible{outline:2px solid #aaa3fa;outline-offset:3px}
+#ytrbg-home .ytrbg-why p{font-size:11px;color:#a9a0fa;line-height:1.5;margin:7px 0 0}
+#ytrbg-home .ytrbg-actions {display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+#ytrbg-home .ytrbg-actions button {
+  padding:6px 10px;border:1px solid var(--yt-spec-10-percent-layer,#494949);
+  border-radius:8px;background:transparent;color:var(--yt-spec-text-secondary,#aaa);font-size:11px;
+}
+#ytrbg-home .ytrbg-actions button:hover {color:var(--yt-spec-text-primary,#fff);background:var(--yt-spec-10-percent-layer,#333)}
+#ytrbg-home .ytrbg-empty {
+  max-width:590px;padding:50px 30px;margin:45px auto;text-align:center;
+  background:var(--yt-spec-10-percent-layer,#262626);border-radius:18px;
+}
+#ytrbg-home .ytrbg-empty h2{font-size:21px;margin:0 0 12px}
+#ytrbg-home .ytrbg-empty p{font-size:13px;color:var(--yt-spec-text-secondary,#aaa);line-height:1.6}
+#ytrbg-home .ytrbg-empty-actions{display:flex;justify-content:center;gap:9px;flex-wrap:wrap;margin-top:22px}
+#ytrbg-home .ytrbg-primary, #ytrbg-home .ytrbg-secondary {
+  border-radius:20px;padding:10px 17px;font-size:13px;text-decoration:none;font-weight:650;
+}
+#ytrbg-home .ytrbg-primary{background:#b4aafa;color:#171128;border:0}
+#ytrbg-home .ytrbg-secondary{background:transparent;color:inherit;border:1px solid #777}
+#ytrbg-home .ytrbg-disabled{
+  display:flex;align-items:center;justify-content:space-between;gap:20px;
+  font-size:13px;border-bottom:1px solid var(--yt-spec-10-percent-layer,#444);padding:5px 0 16px;
+}
+#ytrbg-home .ytrbg-footer{font-size:11px;color:var(--yt-spec-text-secondary,#aaa);margin:30px 0}
+#ytrbg-home .ytrbg-error{background:#642b35;color:white;padding:12px;border-radius:9px;font-size:12px}
+@media(max-width:1350px){#ytrbg-home .ytrbg-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:950px){#ytrbg-home .ytrbg-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){
+  #ytrbg-home{padding:18px 12px}
+  #ytrbg-home .ytrbg-header,#ytrbg-home .ytrbg-toolbar{align-items:start;flex-direction:column}
+  #ytrbg-home .ytrbg-grid{grid-template-columns:1fr}
+  #ytrbg-home .ytrbg-disabled{flex-direction:column;align-items:start}
+}
+
+#ytrbg-home .ytrbg-pagination{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;margin:38px 0 10px}
+#ytrbg-home .ytrbg-page-status{margin:0;color:var(--yt-spec-text-secondary,#aaa);font-size:12px}
+#ytrbg-home .ytrbg-load-more{border:1px solid var(--yt-spec-10-percent-layer,#494949);background:transparent;color:inherit;padding:10px 18px;border-radius:20px;font-size:13px}
+#ytrbg-home .ytrbg-load-more:hover{background:var(--yt-spec-10-percent-layer,#333)}
+#ytrbg-home .ytrbg-scroll-sentinel{height:1px;width:100%}
+
+#ytrbg-home .ytrbg-channel{font-size:13px;color:var(--yt-spec-text-secondary,#aaa);line-height:1.42;font-weight:500;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#ytrbg-home .ytrbg-meta:empty{display:none}
+
+/* Keep the native-feed toggle inside the lower control bar, safely below
+   YouTube's fixed masthead / chip-cloud overlays. */
+#ytrbg-home .ytrbg-header{display:block;margin-bottom:22px}
+#ytrbg-home .ytrbg-toolbar{flex-wrap:wrap;gap:12px}
+#ytrbg-home .ytrbg-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0}
+#ytrbg-home .ytrbg-controls .ytrbg-native{position:static;display:inline-flex;align-items:center;justify-content:center;min-height:34px;margin:0;padding:7px 14px;max-width:100%;white-space:normal;flex-shrink:0}
+#ytrbg-home .ytrbg-stats{white-space:normal}
+@media(max-width:650px){#ytrbg-home .ytrbg-controls{align-items:flex-start;flex-direction:column}}
