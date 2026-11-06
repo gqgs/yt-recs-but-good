@@ -6,6 +6,7 @@ import { fetchLikedVideos, fetchSubscriptions, fetchUploads } from './lib/api-sy
 const KEY = 'yt-recs-state-v1';
 const SETTINGS_KEY = 'yt-recs-settings-v1';
 const API_SYNC_KEY = 'yt-recs-api-sync-v1';
+const PAUSED_KEY = 'yt-recs-collection-paused-v1';
 const MAX_ITEMS = 4000;
 const MAX_EVENTS = 1500;
 const clean = (value, length = 200) => String(value || '').trim().slice(0, length);
@@ -301,6 +302,33 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     reply({ ok: true, result: { started: true } });
     return false;
   }
+  if (msg.type === 'GET_POPUP_DATA') {
+    queue.then(async () => {
+      const state = await readState();
+      const stored = (await chrome.storage.local.get([SETTINGS_KEY, PAUSED_KEY]));
+      const settings = stored[SETTINGS_KEY] || {};
+      const items = Object.values(state.items);
+      const liked = items.filter(v => v.feedback === 'like').length;
+      const candidates = items.filter(v => v.candidate).length;
+      const unseen = items.filter(v => v.candidate && !v.watchedAt &&
+        !v.visitedAt && !v.hasResume && v.feedback !== 'like' && v.feedback !== 'less').length;
+      const recommendations = rankVideos(state.items, {
+        mode: settings.mode || 'personalized',
+        diversity: Number.isFinite(settings.diversity) ? settings.diversity : 55,
+        exploration: Number.isFinite(settings.exploration) ? settings.exploration : 15,
+        halfLifeDays: settings.halfLifeDays || 90,
+        showSeen: settings.showSeen === true,
+        discoveryOnly: settings.discoveryOnly !== false,
+        limit: 12
+      }).map(video => ({
+        ...video, metadataLine: formatMetadataLine(video)
+      }));
+      return { counts: { liked, candidates, unseen }, recommendations,
+        paused: stored[PAUSED_KEY] === true };
+    }).then(result => reply({ ok: true, result }),
+      error => reply({ ok: false, error: String(error) }));
+    return true;
+  }
   if (msg.type === 'GET_STATE') {
     queue.then(readState).then(s => reply({ ok: true, state: s }),
       e => reply({ ok: false, error: String(e) }));
@@ -332,13 +360,55 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       e => reply({ ok: false, error: String(e) }));
     return true;
   }
-  if (msg.type === 'RESET') {
-    const job = queue.then(async () => { await chrome.storage.local.remove(KEY); return { reset: true }; });
+  if (msg.type === 'RESET' || msg.type === 'CLEAR_CANDIDATES') {
+    // Put a barrier in the serial queue. Writes queued before a reset finish
+    // first; writes queued afterwards see the paused flag and cannot refill it.
+    const job = queue.then(async () => {
+      if (msg.type === 'RESET') {
+        // Persist the pause before removing the state so a Home-page MutationObserver
+        // cannot immediately re-import candidates while the user clears them.
+        await chrome.storage.local.set({ [PAUSED_KEY]: true });
+        await chrome.storage.local.remove(KEY);
+        return { reset: true, paused: true };
+      }
+      const state = await readState();
+      let removed = 0;
+      for (const [id, item] of Object.entries(state.items)) {
+        if (!item.candidate) continue;
+        removed++;
+        if (!item.feedback && !item.watchedAt && !item.visitedAt && !item.maxPositionSeconds) {
+          delete state.items[id];
+        } else {
+          // Retain preferences and viewing history, but forget its eligibility
+          // as a recommendation until rediscovered on a different page.
+          item.candidate = false;
+          item.sources = [];
+          item.source = '';
+        }
+      }
+      await saveState(state);
+      return { removed, preservedPreferences: true };
+    });
     queue = job.catch(() => {});
-    job.then(result => reply({ ok: true, result }), e => reply({ ok: false, error: String(e) }));
+    job.then(result => reply({ ok: true, result }),
+      e => reply({ ok: false, error: String(e) }));
+    return true;
+  }
+  if (msg.type === 'COLLECTION_RESUME') {
+    const job = queue.then(async () => {
+      await chrome.storage.local.set({ [PAUSED_KEY]: false });
+      return { paused: false };
+    });
+    queue = job.catch(() => {});
+    job.then(result => reply({ ok: true, result }),
+      e => reply({ ok: false, error: String(e) }));
     return true;
   }
   const job = queue.then(async () => {
+    // Block automatic re-population after a full reset. Nothing will be saved
+    // until the user chooses "Resume collection" in the popup.
+    const paused = (await chrome.storage.local.get(PAUSED_KEY))[PAUSED_KEY] === true;
+    if (paused) return { skipped: true, paused: true };
     const state = await readState();
     const result = process(state, msg);
     await saveState(state);
