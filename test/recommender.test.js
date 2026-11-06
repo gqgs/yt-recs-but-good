@@ -27,7 +27,7 @@ test('liked content makes related content rank higher when freshness is equal', 
     a: video('a', 'Rust programming patterns'),
     b: video('b', 'Ancient Greek architecture')
   };
-  assert.equal(rankVideos(items, { exploration: 0, diversity: 0 }, NOW)[0].id, 'a');
+  assert.equal(rankVideos(items, { exploration: 0, diversity: 0, discoveryOnly: false }, NOW)[0].id, 'a');
   assert.equal(preferenceProfile(items, NOW).likes, 1);
 });
 test('seen items and disliked candidates are excluded by default', () => {
@@ -36,8 +36,8 @@ test('seen items and disliked candidates are excluded by default', () => {
     b: video('b', 'Already watched', { watchedAt: NOW }),
     c: video('c', 'Dismissed', { feedback: 'less', feedbackAt: NOW })
   };
-  assert.deepEqual(rankVideos(items, {}, NOW).map(x => x.id), ['a']);
-  assert.equal(rankVideos(items, { showSeen: true }, NOW).some(x => x.id === 'b'), true);
+  assert.deepEqual(rankVideos(items, { discoveryOnly: false }, NOW).map(x => x.id), ['a']);
+  assert.equal(rankVideos(items, { showSeen: true, discoveryOnly: false }, NOW).some(x => x.id === 'b'), true);
 });
 test('liked seeds are never candidates unless explicitly marked as such, then showSeen controls them', () => {
   const items = { a: video('a', 'Liked', { feedback: 'like', feedbackAt: NOW }) };
@@ -48,7 +48,7 @@ test('selection limits channel saturation when alternatives exist', () => {
   const items = {};
   for (let i = 0; i < 5; i++) items['a' + i] = video('a' + i, 'Rust tutorial ' + i, { channel: 'Channel A', channelId: 'A' });
   for (let i = 0; i < 5; i++) items['b' + i] = video('b' + i, 'Science presentation ' + i, { channel: 'Channel B', channelId: 'B' });
-  const result = rankVideos(items, { limit: 4 }, NOW);
+  const result = rankVideos(items, { limit: 4, discoveryOnly: false }, NOW);
   assert.equal(result.length, 4);
   assert.equal(result.filter(x => x.channelId === 'A').length, 2);
   assert.equal(result.filter(x => x.channelId === 'B').length, 2);
@@ -71,7 +71,7 @@ test('saved publication dates age over time instead of keeping stale relative la
     a: video('a', 'Old video', { publishedText: '1 day ago', publishedAt: NOW - 200 * 86_400_000 }),
     b: video('b', 'Fresh video', { publishedText: '10 days ago', publishedAt: NOW - 86_400_000 })
   };
-  assert.equal(rankVideos(items, { mode: 'recent' }, NOW)[0].id, 'b');
+  assert.equal(rankVideos(items, { mode: 'recent', discoveryOnly: false }, NOW)[0].id, 'b');
 });
 
 test('old invalid titles and advertisement markers are filtered from recommendations', () => {
@@ -85,4 +85,24 @@ test('old invalid titles and advertisement markers are filtered from recommendat
   assert.deepEqual(rankVideos(items, {}, NOW).map(v => v.id), ['e']);
   assert.equal(validVideoTitle('Watch'), false);
   assert.equal(validVideoTitle('Interesting performance'), true);
+});
+
+test('discovery mode rejects Home-only and Related-only videos, not independent sources', () => {
+  const items = {
+    home: video('home', 'Home video', { sources: ['home'] }),
+    related: video('related', 'Related video', { sources: ['related'] }),
+    both: video('both', 'Found through subscriptions', { sources: ['home', 'subscriptions'] }),
+    search: video('search', 'Explicit search result', { sources: ['search'] })
+  };
+  assert.deepEqual(rankVideos(items, {}, NOW).map(v => v.id).sort(), ['both', 'search']);
+  assert.equal(rankVideos(items, { discoveryOnly: false }, NOW).length, 4);
+});
+test('visited and YouTube progress marked videos are excluded unless showSeen', () => {
+  const items = {
+    a: video('a', 'Watch progress video', { source: 'subscriptions', hasResume: true }),
+    b: video('b', 'Visited in browser', { source: 'subscriptions', visitedAt: NOW - 5000 }),
+    c: video('c', 'Never viewed', { source: 'subscriptions' })
+  };
+  assert.deepEqual(rankVideos(items, {}, NOW).map(v => v.id), ['c']);
+  assert.equal(rankVideos(items, { showSeen: true }, NOW).length, 3);
 });
