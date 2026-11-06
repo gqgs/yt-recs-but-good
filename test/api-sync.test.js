@@ -27,10 +27,11 @@ test('paginates likes and sends token only as Authorization header', async () =>
     const pageToken = new URL(url).searchParams.get('pageToken');
     return { ok: true, json: async () => pageToken
       ? { items: [{ id: 'lmnopqrstuv', snippet: { title: 'Second' } }] }
-      : { items: [{ id: VID, snippet: { title: 'First' } }], nextPageToken: 'next' } };
+      : { items: [{ id: VID, snippet: { title: 'First' }, statistics: { viewCount: '120000' } }], nextPageToken: 'next' } };
   };
   const liked = await fetchLikedVideos('secret-token', { fetcher });
   assert.equal(liked.length, 2);
+  assert.equal(liked[0].viewCount, '120000');
   assert.equal(urls.length, 2);
   assert.equal(new URL(urls[0].url).searchParams.get('myRating'), 'like');
   assert.ok(!urls[0].url.includes('secret-token'));
@@ -48,6 +49,13 @@ test('retrieves subscriptions and recent uploads in bounded batches', async () =
     if (u.pathname.endsWith('/playlistItems')) return { ok: true, json: async () => ({ items: [{
       snippet: { title: 'An actual upload' }, contentDetails: { videoId: VID }
     }] }) };
+    if (u.pathname.endsWith('/videos')) {
+      assert.equal(u.searchParams.get('part'), 'statistics');
+      assert.equal(u.searchParams.get('id'), VID);
+      return { ok: true, json: async () => ({ items: [{
+        id: VID, statistics: { viewCount: '243210' }
+      }] }) };
+    }
     throw new Error('unexpected request');
   };
   const subs = await fetchSubscriptions('secret-token', { fetcher });
@@ -59,9 +67,30 @@ test('retrieves subscriptions and recent uploads in bounded batches', async () =
   assert.equal(result.channels, 1);
   assert.equal(result.videos, 1);
   assert.equal(batches[0][0].id, VID);
+  assert.equal(batches[0][0].viewCount, '243210');
 });
 test('reports API failures without displaying credentials', async () => {
   await assert.rejects(requestYouTube('videos', {}, 'secret-token', async () => ({
     ok: false, status: 403, json: async () => ({ error: { message: 'Quota exceeded' } })
   })), /Quota exceeded/);
+});
+
+test('missing statistics do not prevent subscribed upload import', async () => {
+  const fetcher = async url => {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/channels')) return { ok: true, json: async () => ({
+      items: [{ id: CID, contentDetails: { relatedPlaylists: { uploads: 'UU' + 'a'.repeat(22) } } }]
+    }) };
+    if (u.pathname.endsWith('/playlistItems')) return { ok: true, json: async () => ({
+      items: [{ snippet: { title: 'A valid recent video' }, contentDetails: { videoId: VID } }]
+    }) };
+    if (u.pathname.endsWith('/videos')) return { ok: false, status: 403, json: async () => ({ error: { message: 'Not accessible' } }) };
+    throw new Error('Unexpected endpoint');
+  };
+  const videos = [];
+  const result = await fetchUploads('token', [{ channelId: CID }], {
+    fetcher, onBatch: batch => videos.push(...batch)
+  });
+  assert.equal(result.videos, 1);
+  assert.equal(videos[0].viewCount, undefined);
 });
