@@ -239,6 +239,13 @@ async function initialize() {
     chrome.storage.local.set({ [HOME_KEY]: $('replace-home').checked }).catch(showError);
   });
   $('open-home').addEventListener('click', () => open('https://www.youtube.com/'));
+  const redirect = chrome.identity.getRedirectURL('oauth2');
+  $('oauth-redirect-url').textContent = redirect;
+  $('copy-oauth-redirect').addEventListener('click', () => {
+    navigator.clipboard.writeText(redirect).then(() => {
+      $('copy-oauth-redirect').textContent = 'Copied';
+    }, showError);
+  });
   const syncStatus = (await chrome.storage.local.get(API_SYNC_KEY))[API_SYNC_KEY];
   if (syncStatus) renderSyncStatus(syncStatus);
   $('api-sync').addEventListener('click', async () => {
