@@ -81,7 +81,13 @@ where YouTube provides that information, using a familiar line such as
 `243K views · 3 weeks ago`.
 
 - DOM-collected cards parse the view-count label and upload age separately from
-  classic and modern YouTube metadata rows.
+  classic and modern YouTube metadata rows. The extractor recognizes YouTube's
+  newer camelCase (`ytContentMetadataViewModelMetadataText`) and `wiz`
+  variants, and reads accessibility labels when the visual label is abbreviated.
+  This fixes the all-blank metadata reported after visiting subscriptions.
+  After updating the extension, reload both the unpacked extension and the
+  open YouTube tab, then visit/scroll subscriptions again to refresh existing
+  candidate records.
 - The optional Google API import retrieves exact publication timestamps and
   requests `videos.list(part=statistics)` for recently collected uploads in
   bounded batches (up to 50 video IDs per lookup).
