@@ -45,9 +45,11 @@ ship with somebody else's OAuth client. Until configured, the extension
 continues to rank candidates gathered by browsing, and displays a useful setup
 message rather than silently pretending to refresh.
 
-Home-triggered authorization is always **non-interactive**. If the account is
-not yet connected, the extension will not open a sign-in dialog unexpectedly.
-Manual refresh is an explicit user action and may request authorization.
+Home-triggered authorization is always **non-interactive** and uses an unexpired
+session token or an attempted silent Google authorization. If authorization has
+expired or needs interaction, the extension shows **Authorize YouTube API** rather
+than opening a login dialog. Manual refresh is an explicit user action and may
+request authorization.
 
 An automatic check fetches the subscriptions list and up to **five latest
 uploads from each of the first 200 subscribed channels**. This bounded pass
@@ -57,26 +59,38 @@ encountered video IDs are counted as new discoveries. Automatic checks have a
 **15-minute retry backoff** after a failed attempt and share a single-flight
 guard with full API sync, preventing redundant simultaneous requests.
 
-A full data reset pauses both collection and automatic refresh. **Resume
-collection** re-enables them, and clearing just candidates invalidates the
-previous refresh timestamp. No OAuth credentials are written to local storage.
+A full data reset pauses both collection and automatic refresh, clears the
+short-lived session token, and requires manual reauthorization to use API sync
+again. **Resume collection** re-enables collection; clearing only candidates
+invalidates the previous refresh timestamp. No OAuth secrets or access tokens
+are written to persistent local storage.
 
 ## Optional Google API import
 
 You can import your likes, subscriptions, and a bounded sample of subscribed-channel uploads **without manually scrolling**. This requires one-time Google OAuth configuration; ordinary browsing and Home replacement do not require it.
 
-1. In [Google Cloud Console](https://console.cloud.google.com/), create a project and enable **YouTube Data API v3**.
-2. Configure the Google OAuth consent screen (Google Auth Platform). Add your own Google account as a test user if the app is in testing mode.
-3. Load the extension unpacked and copy its ID from `chrome://extensions` (or `brave://extensions`).
-4. In Google Cloud, create an **OAuth client ID** of type **Chrome Extension**, using that exact extension ID.
-5. Replace `REPLACE_WITH_OAUTH_CLIENT_ID.apps.googleusercontent.com` in `manifest.json` with your OAuth client ID. Do **not** paste a client secret (none is needed).
-6. Reload the extension, open its popup, and select **Sync from YouTube API**. Approve the YouTube read-only permission.
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and enable **YouTube Data API v3** for your project.
+2. Open [Google Auth Platform → Audience](https://console.cloud.google.com/auth/audience); choose **External** and add your Google account as a test user if the app is in Testing mode. Configure [Branding](https://console.cloud.google.com/auth/branding) and add the `https://www.googleapis.com/auth/youtube.readonly` scope in [Data Access](https://console.cloud.google.com/auth/data-access).
+3. In `brave://extensions` (or `chrome://extensions`), enable Developer mode, load the unpacked extension, and copy its **Extension ID**.
+4. In [Google Auth Platform → Clients](https://console.cloud.google.com/auth/clients), create a new OAuth client of type **Web application** (not Chrome Extension). Add the **Authorized redirect URI** below, replacing `<extension-id>` with the ID from step 3:
+
+   ```text
+   https://<extension-id>.chromiumapp.org/oauth2
+   ```
+
+   Register this URL **exactly**, including the `/oauth2` path (no trailing slash).
+5. Replace `REPLACE_WITH_WEB_OAUTH_CLIENT_ID.apps.googleusercontent.com` in `manifest.json` with this new **Web application client ID**. Do **not** embed its client secret.
+6. Reload the unpacked extension and click **Sync from YouTube API** in its popup. Approve the requested read-only scope. After this first authorization, Home can attempt silent TTL refreshes.
 
 The user-initiated sync uses `videos.list(myRating=like)`, `subscriptions.list(mine=true)`, `channels.list`, and `playlistItems.list`. It currently imports up to 1,000 recent likes, up to 2,000 subscriptions (40 pages × 50), and the 8 newest uploads from each of the first 200 subscribed channels. These limits keep the first experiment bounded. You can rerun the full sync manually; automatic **homepage-triggered** upload refresh is separate and also uses no background polling.
 
-The Google access token is handled by Chrome's Identity API; it is never written to extension storage or sent to a project server. Imported video metadata and preferences are stored locally. Feedback timestamps for historical imported likes use the import time because the API does not supply the original like timestamp; we do not fabricate historical dates.
+Authorization uses `chrome.identity.launchWebAuthFlow()` with a registered HTTPS `chromiumapp.org` callback. Google returns a **short-lived access token**; only that token and its expiry are kept in `chrome.storage.session` (not persistent `chrome.storage.local`), and full local-data reset clears it. No OAuth token or client secret is sent to a project server. A silent authorization attempt may fail after expiry or browser restart, in which case use the manual **Sync from YouTube API** button to authorize again. Historical likes receive an import-time feedback timestamp because the API doesn't reveal the original like time.
 
-Google authorization, consent screen configuration, API quota, or Brave-specific Identity behavior may prevent syncing. If so, the extension still works through browsing. A public release would require an appropriate OAuth app, verification where applicable, and review of YouTube API policies, including data-retention and refresh obligations.
+**Brave compatibility:** Brave's `chrome.identity.getAuthToken()` produced Google's `Error 400: invalid_request — Custom URI scheme is not supported on Chrome apps`. This version uses `launchWebAuthFlow()` and an HTTPS callback instead. A previous **Chrome Extension** OAuth client cannot be reused; create the **Web application** client from step 4.
+
+**Security trade-off:** The client-only fallback currently uses Google's OAuth implicit access-token response, which Google discourages for modern production applications. This is a local personal experiment: it uses OAuth state validation, an extension-owned HTTPS redirect, short-lived in-memory/session credentials and read-only scopes, but has **no refresh token**. Before publishing a broadly distributed extension, replace it with a production-approved authorization architecture (such as a correctly configured authorization-code/PKCE flow with suitable client support or a trusted token exchange) and complete any required Google review.
+
+Google authorization, consent configuration, API quota, or browser behavior may still prevent syncing; browsing-based recommendations remain available. For broader distribution, review the YouTube API Services policies, including data-retention and refresh obligations.
 
 ## Discovery and repeat filtering
 
