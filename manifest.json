@@ -4,18 +4,29 @@
   "short_name": "yt-recs-but-good",
   "version": "0.1.0",
   "description": "Local-first YouTube discovery, trained by the likes you actually give.",
-  "permissions": ["storage"],
-  "host_permissions": ["https://www.youtube.com/*"],
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*"
+  ],
   "action": {
     "default_title": "yt-recs-but-good",
     "default_popup": "popup.html"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
-  "content_scripts": [{
-    "matches": ["https://www.youtube.com/*"],
-    "js": ["content.js"],
-    "run_at": "document_idle"
-  }]
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }
