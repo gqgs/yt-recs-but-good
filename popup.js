@@ -3,8 +3,10 @@ import { formatMetadataLine } from './lib/video-metadata.js';
 const SETTINGS_KEY = 'yt-recs-settings-v1';
 const HOME_KEY = 'yt-recs-home-enabled-v1';
 const API_SYNC_KEY = 'yt-recs-api-sync-v1';
+const REFRESH_KEY = 'yt-recs-candidate-refresh-v1';
 const defaults = { mode: 'personalized', diversity: 55, exploration: 15,
-  halfLifeDays: 90, showSeen: false, discoveryOnly: true, limit: 30 };
+  halfLifeDays: 90, showSeen: false, discoveryOnly: true, limit: 30,
+  autoRefreshEnabled: true, refreshTtlMinutes: 60 };
 let settings = { ...defaults };
 let snapshot = { counts: { liked: 0, candidates: 0, unseen: 0 }, recommendations: [], paused: false };
 let resetting = false;
@@ -63,6 +65,9 @@ function syncOptions() {
   $('diversity').value = settings.diversity;
   $('exploration').value = settings.exploration;
   $('half-life').value = String(settings.halfLifeDays);
+  $('auto-refresh-enabled').checked = settings.autoRefreshEnabled !== false;
+  $('refresh-ttl').value = String([15, 30, 60, 120, 360, 1440].includes(Number(settings.refreshTtlMinutes))
+    ? Number(settings.refreshTtlMinutes) : 60);
   $('show-seen').checked = settings.showSeen;
   $('discovery-only').checked = settings.discoveryOnly !== false;
   $('diversity-value').textContent = settings.diversity + '%';
@@ -122,7 +127,15 @@ function renderVideo(video, index) {
   card.setAttribute('aria-label', 'Recommendation ' + (index + 1) + ': ' + video.title);
   return card;
 }
+function renderCandidateRefreshStatus(refresh = {}) {
+  const button = $('refresh-now');
+  button.disabled = snapshot.paused || refresh.phase === 'running';
+  const status = $('candidate-refresh-status');
+  status.textContent = refresh.label || 'Never updated';
+  status.title = refresh.message || '';
+}
 function render() {
+  renderCandidateRefreshStatus(snapshot.refresh);
   const counts = snapshot.counts || { liked: 0, candidates: 0, unseen: 0 };
   $('likes-count').textContent = String(counts.liked || 0);
   $('candidates-count').textContent = String(counts.candidates || 0);
@@ -268,6 +281,29 @@ async function initialize() {
     settings.discoveryOnly = $('discovery-only').checked;
     void persistSettings(); render();
   });
+  $('auto-refresh-enabled').addEventListener('change', () => {
+    settings.autoRefreshEnabled = $('auto-refresh-enabled').checked;
+    void persistSettings();
+  });
+  $('refresh-ttl').addEventListener('change', () => {
+    settings.refreshTtlMinutes = Number($('refresh-ttl').value);
+    void persistSettings();
+  });
+  $('refresh-now').addEventListener('click', async () => {
+    $('refresh-now').disabled = true;
+    try {
+      const response = await request({ type: 'REFRESH_CANDIDATES', force: true, interactive: true });
+      if (!response.result.started && response.result.reason === 'needs_setup') {
+        $('candidate-refresh-status').textContent = 'Set up YouTube API OAuth in manifest.json first.';
+      } else if (response.result.started) {
+        $('candidate-refresh-status').textContent = 'Checking subscribed channels…';
+      }
+    } catch (error) {
+      showError(error);
+    } finally {
+      scheduleRefresh();
+    }
+  });
   $('import-history').addEventListener('click', async () => {
     const button = $('import-history');
     button.disabled = true;
@@ -346,7 +382,8 @@ async function initialize() {
     if (area !== 'local') return;
     if (changes[HOME_KEY]) $('replace-home').checked = changes[HOME_KEY].newValue !== false;
     if (changes[API_SYNC_KEY]) renderSyncStatus(changes[API_SYNC_KEY].newValue);
-    if (changes['yt-recs-state-v1'] || changes['yt-recs-collection-paused-v1']) scheduleRefresh();
+    if (changes['yt-recs-state-v1'] || changes['yt-recs-collection-paused-v1'] ||
+        changes[REFRESH_KEY]) scheduleRefresh();
   });
   await refresh();
 }
