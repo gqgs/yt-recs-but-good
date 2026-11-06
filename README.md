@@ -21,6 +21,46 @@ You can also start from scratch: use YouTube's normal **Like** button on videos 
 
 **Expected behavior:** Use actual likes as explicit feedback when possible. A watched video is not automatically treated as liked; ignoring or skipping a video isn't automatically treated as dislike. If you don't like a recommendation, choose **Not for me**. Use **Seen** to hide something already watched elsewhere.
 
+## Automatic candidate refresh (default: 1 hour)
+
+The personalized YouTube Home now **checks for fresh uploads when you open or return
+to the Home tab**. It refreshes the source pool, rather than just reranking old
+candidates. It does not poll continuously, use background alarms, or navigate to
+Subscriptions on your behalf.
+
+In the extension popup, **Keep recommendations fresh** provides:
+
+- **Check for new uploads when opening YouTube Home** — on by default.
+- **Minimum time between successful checks** — 15 minutes, 30 minutes,
+  **1 hour (default)**, 2 hours, 6 hours, or 24 hours.
+- **Refresh uploads now** — explicitly bypasses the TTL.
+- A status label showing the last successful refresh, new candidate count, or
+  any authorization/error status. Home also has a **Refresh uploads** button.
+
+**Prerequisite:** Automatic upload discovery uses the official YouTube Data API,
+not the browser's existing signed-in page. To enable it, configure a Google
+OAuth client ID as described below and complete the one-time **Sync from YouTube
+API** authorization in the popup. The public repository intentionally does not
+ship with somebody else's OAuth client. Until configured, the extension
+continues to rank candidates gathered by browsing, and displays a useful setup
+message rather than silently pretending to refresh.
+
+Home-triggered authorization is always **non-interactive**. If the account is
+not yet connected, the extension will not open a sign-in dialog unexpectedly.
+Manual refresh is an explicit user action and may request authorization.
+
+An automatic check fetches the subscriptions list and up to **five latest
+uploads from each of the first 200 subscribed channels**. This bounded pass
+skips the extra view-statistics lookups to conserve API quota; view counts can
+still be learned from normal browsing or a full manual API import. Only newly
+encountered video IDs are counted as new discoveries. Automatic checks have a
+**15-minute retry backoff** after a failed attempt and share a single-flight
+guard with full API sync, preventing redundant simultaneous requests.
+
+A full data reset pauses both collection and automatic refresh. **Resume
+collection** re-enables them, and clearing just candidates invalidates the
+previous refresh timestamp. No OAuth credentials are written to local storage.
+
 ## Optional Google API import
 
 You can import your likes, subscriptions, and a bounded sample of subscribed-channel uploads **without manually scrolling**. This requires one-time Google OAuth configuration; ordinary browsing and Home replacement do not require it.
@@ -32,7 +72,7 @@ You can import your likes, subscriptions, and a bounded sample of subscribed-cha
 5. Replace `REPLACE_WITH_OAUTH_CLIENT_ID.apps.googleusercontent.com` in `manifest.json` with your OAuth client ID. Do **not** paste a client secret (none is needed).
 6. Reload the extension, open its popup, and select **Sync from YouTube API**. Approve the YouTube read-only permission.
 
-The user-initiated sync uses `videos.list(myRating=like)`, `subscriptions.list(mine=true)`, `channels.list`, and `playlistItems.list`. It currently imports up to 1,000 recent likes, up to 2,000 subscriptions (40 pages × 50), and the 8 newest uploads from each of the first 200 subscribed channels. These limits keep the first experiment bounded. You can rerun the sync manually; **no background polling** runs.
+The user-initiated sync uses `videos.list(myRating=like)`, `subscriptions.list(mine=true)`, `channels.list`, and `playlistItems.list`. It currently imports up to 1,000 recent likes, up to 2,000 subscriptions (40 pages × 50), and the 8 newest uploads from each of the first 200 subscribed channels. These limits keep the first experiment bounded. You can rerun the full sync manually; automatic **homepage-triggered** upload refresh is separate and also uses no background polling.
 
 The Google access token is handled by Chrome's Identity API; it is never written to extension storage or sent to a project server. Imported video metadata and preferences are stored locally. Feedback timestamps for historical imported likes use the import time because the API does not supply the original like timestamp; we do not fabricate historical dates.
 
@@ -192,7 +232,7 @@ hide the old header-mounted button.
 ## What is implemented
 
 - **Home-page replacement.** Your ranked feed is the default at youtube.com, showing channel, view count and upload age when available, with progressive loading and a switch to restore original YouTube. The popup controls preferences and optional import.
-- **No OAuth needed for browsing and no background polling.** A Manifest V3 content script observes the YouTube pages you visit (home, search, subscriptions, related videos, channel pages and your liked playlist). Video titles, channel names, and upload-age text become candidates. There is no attempt to scrape unseen uploads.
+- **No OAuth needed for browsing and no background polling.** An authorized, TTL-guarded API refresh runs only when Home is visited or a refresh button is clicked. A Manifest V3 content script observes the YouTube pages you visit (home, search, subscriptions, related videos, channel pages and your liked playlist). Video titles, channel names, and upload-age text become candidates. There is no attempt to scrape unseen uploads.
 - **Feedback captured as events.** Clicking YouTube's Like/Unlike button is recorded when the extension can confirm the button's changed pressed state. The extension also supports explicit local feedback. Subscriptions/unsubscriptions from the watch page are recorded on a best-effort basis.
 - **Watch markers.** The extension records watches when playback starts, plus an approximate maximum playback position. A video merely appearing on screen does not count as watched.
 - **Continuously updated preferences.** A preference profile is rebuilt from your current likes and dislikes, weighted by a configurable feedback half-life (30/90/365 days or nearly static). Earlier feedback decays; more recent feedback has greater influence.
@@ -205,7 +245,7 @@ The **Like** button inside the extension updates its *own* model only. It does *
 ## What isn't implemented
 
 - No general-purpose crawling of all videos. Without optional API sync, discovery remains limited to pages you visit; API sync adds a bounded sample of uploads from subscribed channels.
-- API sync imports likes and subscriptions but not watch history. Browsing on other devices is not automatically captured, and one-time imported signals are not continually synchronized.
+- Manual API sync imports likes and subscriptions but not watch history. Home-triggered refresh obtains recent uploads after authorization, but does not continuously synchronize likes or views from other devices.
 - No transcripts, captions, video decoding, embedding model, external LLM, or direct weight-space programming **yet**.
 - No calibrated probabilities or quantitative claim that this system beats YouTube. Scores are relative heuristics, not probabilities.
 - YouTube changes its page markup frequently. Like and subscribe button detection is **best effort**, and only confirmed state transitions are recorded.
