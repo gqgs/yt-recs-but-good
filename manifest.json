@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "yt-recs-but-good",
   "short_name": "yt-recs-but-good",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Local-first YouTube discovery, trained by the likes you actually give.",
   "permissions": [
     "storage",
