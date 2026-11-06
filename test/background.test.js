@@ -5,6 +5,7 @@ const VID_A = 'abcdefghijk';
 const VID_B = 'lmnopqrstuv';
 const CHANNEL = 'UC' + 'z'.repeat(22);
 const state = {};
+const session = {};
 let onMessage;
 let oauthConfigured = false;
 let authGranted = false;
@@ -25,6 +26,10 @@ globalThis.chrome = {
     async remove(keys) {
       for (const key of Array.isArray(keys) ? keys : [keys]) delete state[key];
     }
+  }, session: {
+    async get(key) { return { [key]: session[key] }; },
+    async set(values) { Object.assign(session, values); },
+    async remove(key) { delete session[key]; }
   }},
   permissions: { async contains() { return true; } },
   history: {
@@ -35,11 +40,24 @@ globalThis.chrome = {
     ]; }
   },
   identity: {
-    async getAuthToken({ interactive }) {
+    getRedirectURL(path) {
+      assert.equal(path, 'oauth2');
+      return 'https://abcdefghijklmno.chromiumapp.org/oauth2';
+    },
+    async launchWebAuthFlow({ interactive, url }) {
       identityCalls.push(interactive);
+      const request = new URL(url);
+      assert.equal(request.origin, 'https://accounts.google.com');
+      assert.equal(request.searchParams.get('response_type'), 'token');
+      assert.equal(request.searchParams.get('redirect_uri'),
+        'https://abcdefghijklmno.chromiumapp.org/oauth2');
       if (!interactive && !authGranted) throw new Error('OAuth approval not granted');
       authGranted = true;
-      return { token: 'testing-token' };
+      return 'https://abcdefghijklmno.chromiumapp.org/oauth2#' +
+        new URLSearchParams({
+          access_token: 'testing-token', token_type: 'Bearer',
+          expires_in: '3600', state: request.searchParams.get('state')
+        }).toString();
     }
   },
   runtime: {
@@ -262,6 +280,7 @@ test('full reset clears last refresh and prevents automatic collection until res
   await message({ type: 'COLLECTION_RESUME' });
   const after = await message({ type: 'GET_POPUP_DATA' });
   assert.equal(after.result.refresh.lastSuccessAt, undefined);
+  assert.deepEqual(session, {});
 });
 test.after(() => {
   globalThis.chrome = oldChrome;
