@@ -28,3 +28,8 @@ test('formats old relative timestamps as time passes', () => {
   const item = { publishedAt: NOW - 2 * 86400000, publishedText: '2 days ago' };
   assert.equal(formatUploadAge(item, NOW + 5 * 86400000), '1 week ago');
 });
+
+test('formats fully spelled out accessibility view counts', () => {
+  assert.equal(formatViewCount({ viewCountText: '1.7 million views' }), '1.7M views');
+  assert.equal(formatViewCount({ viewCountText: '42 thousand views' }), '42K views');
+});
