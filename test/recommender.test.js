@@ -42,7 +42,7 @@ test('seen items and disliked candidates are excluded by default', () => {
 test('liked seeds are never candidates unless explicitly marked as such, then showSeen controls them', () => {
   const items = { a: video('a', 'Liked', { feedback: 'like', feedbackAt: NOW }) };
   assert.equal(rankVideos(items, {}, NOW).length, 0);
-  assert.equal(rankVideos(items, { showSeen: true }, NOW).length, 1);
+  assert.equal(rankVideos(items, { showSeen: true, discoveryOnly: false }, NOW).length, 1);
 });
 test('selection limits channel saturation when alternatives exist', () => {
   const items = {};
@@ -55,7 +55,7 @@ test('selection limits channel saturation when alternatives exist', () => {
 });
 test('a cold-start profile still produces recommendations', () => {
   const items = { a: video('a', 'New talk'), b: video('b', 'Older talk', { publishedText: '2 years ago' }) };
-  assert.equal(rankVideos(items, {}, NOW)[0].id, 'a');
+  assert.equal(rankVideos(items, { discoveryOnly: false }, NOW)[0].id, 'a');
 });
 test('changing recency of feedback changes preference profile', () => {
   const items = {
@@ -82,7 +82,7 @@ test('old invalid titles and advertisement markers are filtered from recommendat
     d: video('d', 'A genuine Linux presentation', { isAd: true }),
     e: video('e', 'A genuine Linux presentation')
   };
-  assert.deepEqual(rankVideos(items, {}, NOW).map(v => v.id), ['e']);
+  assert.deepEqual(rankVideos(items, { discoveryOnly: false }, NOW).map(v => v.id), ['e']);
   assert.equal(validVideoTitle('Watch'), false);
   assert.equal(validVideoTitle('Interesting performance'), true);
 });
