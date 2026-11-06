@@ -94,3 +94,29 @@ test('missing statistics do not prevent subscribed upload import', async () => {
   assert.equal(result.videos, 1);
   assert.equal(videos[0].viewCount, undefined);
 });
+
+test('lightweight automatic upload checks do not request view statistics', async () => {
+  const requests = [];
+  const fetcher = async url => {
+    const parsed = new URL(url);
+    requests.push(parsed.pathname);
+    if (parsed.pathname.endsWith('/channels')) return { ok: true, json: async () => ({
+      items: [{ id: CID, contentDetails: { relatedPlaylists: { uploads: 'UU' + 'a'.repeat(22) } } }]
+    }) };
+    if (parsed.pathname.endsWith('/playlistItems')) {
+      assert.equal(parsed.searchParams.get('maxResults'), '5');
+      return { ok: true, json: async () => ({
+        items: [{ snippet: { title: 'Recent talk' }, contentDetails: { videoId: VID } }]
+      }) };
+    }
+    throw new Error('Unexpected endpoint: ' + parsed.pathname);
+  };
+  const videos = [];
+  const result = await fetchUploads('token', [{ channelId: CID }], {
+    fetcher, maxPerChannel: 5, includeStatistics: false,
+    onBatch: batch => videos.push(...batch)
+  });
+  assert.equal(result.videos, 1);
+  assert.equal(videos[0].id, VID);
+  assert.deepEqual(requests.map(p => p.split('/').at(-1)), ['channels', 'playlistItems']);
+});
