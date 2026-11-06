@@ -38,6 +38,42 @@ The Google access token is handled by Chrome's Identity API; it is never written
 
 Google authorization, consent screen configuration, API quota, or Brave-specific Identity behavior may prevent syncing. If so, the extension still works through browsing. A public release would require an appropriate OAuth app, verification where applicable, and review of YouTube API policies, including data-retention and refresh obligations.
 
+## Discovery and repeat filtering
+
+After testing the first curated Home feed, it became clear that ranking videos taken
+straight from YouTube's Home and Related feeds largely reproduces YouTube's own
+selection bias.
+
+**Default: Discovery sources only.** The ranking now prioritizes candidates actually
+collected from your **Subscriptions feed, direct channel pages, or searches**, including
+those imported through the authorized API. Videos found *only* via YouTube Home or
+Related suggestions are excluded by default. The popup's **Only candidates from
+subscriptions, channels and searches** checkbox can turn this restriction off.
+If the independent pool is empty, the Home page explains why and lets you opt back
+into Home candidates instead of silently falling back.
+
+**Repeat suppression.** By default, the extension excludes items that are known to
+have been played since installation, manually marked Seen, liked, or identified by
+YouTube's resume-progress overlay. For older views, you can optionally click
+**Import YouTube visits from browser history** in the popup. The browser explicitly
+requests the optional `history` permission. The import searches for YouTube
+watch-page URLs (up to the latest 20,000 history search results) and retains only
+their video IDs and last-visit timestamps, never unrelated browsing history.
+A visit is treated as **previously opened**, not proof the full video was watched.
+The option to **Include previously opened and liked videos** overrides the filters.
+
+**Limits:** Chrome/Brave history does not include watches from other devices,
+deleted history, or incognito sessions. YouTube's visual progress marker may help
+identify some of these views, but it isn't a complete watch history. Users should
+continue using the **Seen** button for manually recognized duplicates. For genuinely
+new discovery beyond subscribed channels, we'll need a candidate acquisition system
+independent of YouTube Home; changing only the ranker is insufficient.
+
+**Channel metadata:** the Home card now displays the channel name under the title.
+Newly observed cards use additional selectors for modern YouTube channel view-models.
+Old cached entries with no recognizable metadata show "Channel unavailable" until
+rediscovered or enriched via the optional API import; we don't invent a channel name.
+
 ## Homepage quality-of-life fixes
 
 - **Actual video titles:** candidate extraction now finds explicit title elements before considering the video's watch link. Thumbnail overlays like "Watch" or video-duration badges are not used as titles.
@@ -56,7 +92,7 @@ Google authorization, consent screen configuration, API quota, or Brave-specific
 - **Watch markers.** The extension records watches when playback starts, plus an approximate maximum playback position. A video merely appearing on screen does not count as watched.
 - **Continuously updated preferences.** A preference profile is rebuilt from your current likes and dislikes, weighted by a configurable feedback half-life (30/90/365 days or nearly static). Earlier feedback decays; more recent feedback has greater influence.
 - **Inspectability.** Recommendations include an optional collapsed explanation, such as matched liked topics or subscribed channels.
-- **Control over the feed.** Three ranking modes (For you / Explore / Recent), an exploration setting, a diversity setting, a cap of two recommendations per channel in the first selection pass, and a toggle for previously watched videos.
+- **Control over the feed.** Three ranking modes (For you / Explore / Recent), an exploration setting, a diversity setting, a direct-discovery-only source filter (on by default), a cap of two recommendations per channel in the first selection pass, and a toggle for previously opened videos.
 - **Private by default.** Video metadata, feedback, and event history are stored in `chrome.storage.local`. You can export a JSON snapshot or delete local data in the popup.
 
 The **Like** button inside the extension updates its *own* model only. It does **not** click YouTube's Like button or modify your YouTube account.
@@ -111,7 +147,7 @@ const recommendations = rankVideos(items, { mode: 'personalized', diversity: 55,
 
 ## Privacy and limitations
 
-The extension requests `storage` and `identity`, plus access to `https://www.youtube.com/*` and `https://www.googleapis.com/*`. Only explicit API sync invokes Google OAuth; the normal recommender does not access Google credentials. It does not send browsing history to a project server. Exported JSON is sensitive because it contains viewing preferences; keep it private.
+The extension requests `storage` and `identity`, plus access to `https://www.youtube.com/*` and `https://www.googleapis.com/*`. The `history` permission is **optional** and requested only after you click the history-import button. Only explicit API sync invokes Google OAuth; the normal recommender does not access Google credentials. It does not send browsing history to a project server. Exported JSON is sensitive because it contains viewing preferences; keep it private.
 
 Recommending only from the observed feed may reinforce YouTube's own candidate-selection biases. The future independent discovery pipeline should use the same preference and ranking engine, with a broader source of recent videos.
 
