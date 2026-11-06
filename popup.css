@@ -100,3 +100,14 @@ body.confirming{overflow:hidden}
 .confirm-actions .secondary{background:#292b36;color:#efeff7;border:1px solid #565666}
 .confirm-actions .destructive{background:#b84358;color:white;border:1px solid #e16c81}
 .confirm-actions button:disabled{opacity:.6;cursor:wait}
+
+.candidate-refresh{margin-top:12px;padding:12px;border:1px solid #343446;border-radius:10px;background:#171821;display:grid;gap:9px}
+.candidate-refresh h2{font-size:13px}
+.candidate-refresh label{font-size:11px;color:#c3c3d2}
+.candidate-refresh .checkbox{display:flex;align-items:center;gap:8px}
+.candidate-refresh input[type=checkbox]{accent-color:#aa94ff}
+.candidate-refresh select{border-radius:7px;padding:8px;background:#242530;color:#f1f0f8;border:1px solid #434454}
+.candidate-refresh-status{display:grid;gap:5px}
+.candidate-refresh-status button{padding:9px 12px;border-radius:7px;font-weight:600}
+.candidate-refresh-status button:disabled{opacity:.6;cursor:wait}
+.candidate-refresh-status p,.candidate-refresh-note{font-size:11px;line-height:1.5;margin:0;color:#a4a6b4}
