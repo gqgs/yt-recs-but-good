@@ -51,6 +51,12 @@
       <button id="api-sync" class="secondary">Sync from YouTube API</button>
       <p id="api-sync-status" role="status" aria-live="polite">Requires a Google OAuth client ID in the extension manifest. <a href="https://github.com/gqgs/yt-recs-but-good#optional-google-api-import" target="_blank" rel="noopener noreferrer">Setup guide</a></p>
     </section>
+    <section class="history-import" aria-labelledby="history-title">
+      <h2 id="history-title">Avoid recommendations you've already opened</h2>
+      <p>Import YouTube watch-page visits from this browser. This is optional, and visiting a page doesn't prove you watched it. Browser permission grants broader history access, but only YouTube video IDs are retained.</p>
+      <button type="button" id="import-history" class="secondary">Import YouTube visits from browser history</button>
+      <p id="history-status" role="status" aria-live="polite"></p>
+    </section>
     <section class="controls">
       <div class="section-heading">
         <h2>Recommendations</h2>
@@ -73,7 +79,8 @@
           <option value="365">365 days</option>
           <option value="3650">Effectively static</option>
         </select>
-        <label class="checkbox"><input id="show-seen" type="checkbox"> Include watched and liked videos</label>
+        <label class="checkbox"><input id="discovery-only" type="checkbox" checked> Only candidates from subscriptions, channels and searches (not YouTube Home/Related)</label>
+        <label class="checkbox"><input id="show-seen" type="checkbox"> Include previously opened and liked videos</label>
       </div>
     </section>
 
