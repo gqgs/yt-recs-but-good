@@ -1,7 +1,8 @@
-import { relativeAgeDays } from './lib/recommender.js';
+import { relativeAgeDays, rankVideos } from './lib/recommender.js';
 
 // Privacy-first persistence and event log. All activity remains in chrome.storage.local.
 const KEY = 'yt-recs-state-v1';
+const SETTINGS_KEY = 'yt-recs-settings-v1';
 const MAX_ITEMS = 4000;
 const MAX_EVENTS = 1500;
 const clean = (value, length = 200) => String(value || '').trim().slice(0, length);
@@ -141,6 +142,27 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (!msg || typeof msg.type !== 'string') return false;
   if (msg.type === 'GET_STATE') {
     queue.then(readState).then(s => reply({ ok: true, state: s }),
+      e => reply({ ok: false, error: String(e) }));
+    return true;
+  }
+  if (msg.type === 'GET_RECOMMENDATIONS') {
+    queue.then(async () => {
+      const state = await readState();
+      const stored = (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY] || {};
+      const settings = {
+        mode: ['personalized', 'explore', 'recent'].includes(stored.mode) ? stored.mode : 'personalized',
+        diversity: Number.isFinite(stored.diversity) ? stored.diversity : 55,
+        exploration: Number.isFinite(stored.exploration) ? stored.exploration : 15,
+        halfLifeDays: [30, 90, 365, 3650].includes(stored.halfLifeDays) ? stored.halfLifeDays : 90,
+        showSeen: stored.showSeen === true,
+        limit: 60
+      };
+      const items = Object.values(state.items);
+      const likes = items.filter(v => v.feedback === 'like').length;
+      const unseen = items.filter(v => v.candidate && !v.watchedAt && v.feedback !== 'like' && v.feedback !== 'less').length;
+      return { recommendations: rankVideos(state.items, settings),
+        counts: { likes, unseen, candidates: items.filter(v => v.candidate).length } };
+    }).then(result => reply({ ok: true, result }),
       e => reply({ ok: false, error: String(e) }));
     return true;
   }
