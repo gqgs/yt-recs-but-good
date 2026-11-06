@@ -55,3 +55,26 @@ test('validates video ID host and rejects malformed titles', () => {
   assert.equal(validTitle('9:56'), false);
   assert.equal(validTitle('Watch'), false);
 });
+
+test('filters generic LIVE overlays in previously broken card titles', () => {
+  assert.equal(validTitle('LIVE'), false);
+  assert.equal(extractCard(fakeCard({ title: 'LIVE' })), null);
+});
+test('extracts the modern channel metadata row and watch-progress marker', () => {
+  const fixture = fakeCard({ title: 'Embedded Linux Talk' });
+  const original = fixture.querySelector.bind(fixture);
+  fixture.querySelector = selector => {
+    if (selector === '.yt-content-metadata-view-model__metadata-row:first-child')
+      return el('The Linux Foundation');
+    if (selector === 'ytd-thumbnail-overlay-resume-playback-renderer, yt-thumbnail-overlay-progress-bar-view-model')
+      return {};
+    // Modern layout: none of the channel link selectors match.
+    if (selector.includes('channel-name') || selector.includes('metadata-text a') ||
+        selector.includes('metadata-row:first-child a') ||
+        selector.includes('view-model a[href^=')) return null;
+    return original(selector);
+  };
+  const parsed = extractCard(fixture);
+  assert.equal(parsed.channel, 'The Linux Foundation');
+  assert.equal(parsed.hasResume, true);
+});
