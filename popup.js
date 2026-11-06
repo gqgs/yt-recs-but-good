@@ -146,6 +146,76 @@ function render() {
   for (const [i, video] of ranked.entries()) results.append(renderVideo(video, i));
 }
 
+// Unlike window.confirm(), this dialog never blocks the browser's event loop
+// or escapes the bounds of the extension popup.
+let pendingDeletion = null;
+let previousFocus = null;
+
+function closeConfirmation() {
+  const overlay = $('confirm-overlay');
+  overlay.hidden = true;
+  document.querySelector('main').inert = false;
+  document.body.classList.remove('confirming');
+  pendingDeletion = null;
+  $('confirm-proceed').disabled = false;
+  $('confirm-cancel').disabled = false;
+  previousFocus?.focus?.();
+  previousFocus = null;
+}
+
+function openConfirmation(action) {
+  if (resetting || pendingDeletion || !['candidates', 'all'].includes(action)) return;
+  pendingDeletion = action;
+  previousFocus = document.activeElement;
+  if (action === 'all') {
+    $('confirm-title').textContent = 'Delete all extension data?';
+    $('confirm-description').textContent =
+      'This permanently clears your locally collected videos, likes, subscriptions, and viewing history. Your YouTube account is unaffected. Collection will stay paused until you resume it.';
+    $('confirm-proceed').textContent = 'Delete all data';
+  } else {
+    $('confirm-title').textContent = 'Clear recommendation candidates?';
+    $('confirm-description').textContent =
+      'This removes the collected recommendation pool, but retains your likes, subscriptions, and viewing history.';
+    $('confirm-proceed').textContent = 'Clear candidates';
+  }
+  $('confirm-overlay').hidden = false;
+  document.querySelector('main').inert = true;
+  document.body.classList.add('confirming');
+  $('confirm-cancel').focus();
+}
+
+async function performDeletion() {
+  const action = pendingDeletion;
+  if (!action || resetting) return;
+  resetting = true;
+  $('confirm-proceed').disabled = true;
+  $('confirm-cancel').disabled = true;
+  $('confirm-proceed').textContent = 'Clearing…';
+  $('reset-data').disabled = true;
+  $('clear-candidates').disabled = true;
+  try {
+    if (action === 'all') {
+      $('reset-status').textContent = 'Clearing extension data…';
+      await request({ type: 'RESET' });
+      $('reset-status').textContent =
+        'Data cleared. Automatic collection is paused until you choose Resume.';
+    } else {
+      const response = await request({ type: 'CLEAR_CANDIDATES' });
+      $('reset-status').textContent =
+        'Cleared ' + response.result.removed + ' candidate records. Your likes and history were retained.';
+    }
+  } catch (error) {
+    showError(error);
+    $('reset-status').textContent = 'Could not complete the deletion.';
+  } finally {
+    resetting = false;
+    closeConfirmation();
+    $('reset-data').disabled = false;
+    $('clear-candidates').disabled = false;
+    await refresh().catch(showError);
+  }
+}
+
 async function initialize() {
   const saved = (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY];
   if (saved && typeof saved === 'object') settings = { ...settings, ...saved };
@@ -241,36 +311,30 @@ async function initialize() {
       setTimeout(() => URL.revokeObjectURL(url), 3000);
     } catch (error) { showError(error); }
   });
-  $('clear-candidates').addEventListener('click', async () => {
-    if (!confirm('Clear collected recommendation candidates while keeping likes, subscriptions and viewing history?')) return;
-    try {
-      $('clear-candidates').disabled = true;
-      const response = await request({ type: 'CLEAR_CANDIDATES' });
-      $('reset-status').textContent = 'Cleared ' + response.result.removed +
-        ' candidate records. Your likes and history were retained.';
-      await refresh();
-    } catch (error) { showError(error); }
-    finally { $('clear-candidates').disabled = false; }
+  $('confirm-cancel').addEventListener('click', closeConfirmation);
+  $('confirm-proceed').addEventListener('click', () => { void performDeletion(); });
+  $('confirm-overlay').addEventListener('click', event => {
+    if (event.target === $('confirm-overlay') && !resetting) closeConfirmation();
   });
-  $('reset-data').addEventListener('click', async () => {
-    if (!confirm('Permanently delete all locally collected videos, likes, history and subscriptions? Collection will pause until you resume it. Your YouTube account is unaffected.')) return;
-    resetting = true;
-    $('reset-data').disabled = true;
-    $('clear-candidates').disabled = true;
-    $('reset-status').textContent = 'Clearing extension data…';
-    try {
-      await request({ type: 'RESET' });
-      $('reset-status').textContent = 'Data cleared. Automatic collection is paused until you choose Resume.';
-    } catch (error) {
-      showError(error);
-      $('reset-status').textContent = 'Could not complete reset.';
-    } finally {
-      resetting = false;
-      $('reset-data').disabled = false;
-      $('clear-candidates').disabled = false;
-      await refresh().catch(showError);
+  document.addEventListener('keydown', event => {
+    if ($('confirm-overlay').hidden || resetting) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeConfirmation();
+    } else if (event.key === 'Tab') {
+      // Keep keyboard focus within the two dialog controls.
+      const focused = document.activeElement;
+      if (event.shiftKey && focused === $('confirm-cancel')) {
+        event.preventDefault();
+        $('confirm-proceed').focus();
+      } else if (!event.shiftKey && focused === $('confirm-proceed')) {
+        event.preventDefault();
+        $('confirm-cancel').focus();
+      }
     }
   });
+  $('clear-candidates').addEventListener('click', () => openConfirmation('candidates'));
+  $('reset-data').addEventListener('click', () => openConfirmation('all'));
   $('resume-collection').addEventListener('click', async () => {
     try {
       await request({ type: 'COLLECTION_RESUME' });
