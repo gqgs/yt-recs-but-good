@@ -146,7 +146,7 @@ function render() {
   for (const [i, video] of ranked.entries()) results.append(renderVideo(video, i));
 }
 
-// Unlike window.confirm(), this dialog never blocks the browser's event loop
+// Unlike native browser dialogs, this confirmation cannot block the event loop
 // or escapes the bounds of the extension popup.
 let pendingDeletion = null;
 let previousFocus = null;
