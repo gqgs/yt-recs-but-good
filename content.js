@@ -149,6 +149,16 @@
     }
     scheduleScan();
   }
+  // Reset clears storage but the in-page deduplication cache survives until
+  // navigation. On explicit resume, clear that cache and re-index the current
+  // page without requiring an extra browser reload.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    const change = changes['yt-recs-collection-paused-v1'];
+    if (!change || change.newValue !== false) return;
+    seenCards.clear();
+    scheduleScan();
+  });
   document.addEventListener('yt-navigate-finish', navigation);
   window.addEventListener('popstate', navigation);
   new MutationObserver(scheduleScan).observe(document.documentElement, { childList: true, subtree: true });
