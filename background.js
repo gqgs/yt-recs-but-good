@@ -2,6 +2,7 @@ import { relativeAgeDays, rankVideos } from './lib/recommender.js';
 import { formatMetadataLine } from './lib/video-metadata.js';
 import { fetchLikedVideos, fetchSubscriptions, fetchUploads } from './lib/api-sync.js';
 import { normalizeTtlMinutes, shouldRefresh, formatRefreshAge } from './lib/refresh-policy.js';
+import { getGoogleAccessToken, clearGoogleAccessToken, configuredGoogleClientId } from './lib/google-auth.js';
 
 // Privacy-first persistence and event log. All activity remains in chrome.storage.local.
 const KEY = 'yt-recs-state-v1';
@@ -259,9 +260,7 @@ async function importSubscriptions(subs) {
 async function runApiSync() {
   try {
     await syncStatus('auth', 'Authorizing with your Google account…');
-    const result = await chrome.identity.getAuthToken({ interactive: true });
-    const token = typeof result === 'string' ? result : result?.token;
-    if (!token) throw new Error('Google authorization did not return a token.');
+    const token = await getGoogleAccessToken({ interactive: true });
     await syncStatus('likes', 'Importing your most recent 1,000 liked videos…');
     const likes = await fetchLikedVideos(token);
     await importVideos('liked', likes);
@@ -299,8 +298,7 @@ async function runApiSync() {
   }
 }
 function configuredOAuth() {
-  const clientId = chrome.runtime.getManifest().oauth2?.client_id || '';
-  return Boolean(clientId && !clientId.includes('REPLACE_WITH'));
+  return Boolean(configuredGoogleClientId(chrome.runtime.getManifest()));
 }
 async function saveRefreshStatus(patch) {
   const saved = (await chrome.storage.local.get(REFRESH_KEY))[REFRESH_KEY] || {};
@@ -331,9 +329,7 @@ let candidateRefreshPromise = null;
 let refreshKickoffPromise = null;
 async function performCandidateRefresh(interactive) {
   try {
-    const response = await chrome.identity.getAuthToken({ interactive });
-    const token = typeof response === 'string' ? response : response?.token;
-    if (!token) throw new Error('Google authorization is required. Use the API Sync button in the extension popup.');
+    const token = await getGoogleAccessToken({ interactive });
     const subscriptions = await fetchSubscriptions(token);
     await importSubscriptions(subscriptions);
     const newUploads = [];
@@ -418,7 +414,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (msg.type === 'API_SYNC_START') {
     const oauth = chrome.runtime.getManifest().oauth2?.client_id || '';
     if (!oauth || oauth.includes('REPLACE_WITH')) {
-      reply({ ok: false, error: 'Configure a Google OAuth Chrome Extension client ID in manifest.json first. See README.md.' });
+      reply({ ok: false, error: 'Configure a Google Web application OAuth client ID in manifest.json and register the chromiumapp.org redirect. See README.md.' });
       return false;
     }
     if (apiSyncPromise || candidateRefreshPromise || refreshKickoffPromise) {
@@ -500,6 +496,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         // cannot immediately re-import candidates while the user clears them.
         await chrome.storage.local.set({ [PAUSED_KEY]: true });
         await chrome.storage.local.remove([KEY, REFRESH_KEY]);
+        await clearGoogleAccessToken();
         return { reset: true, paused: true };
       }
       const state = await readState();
