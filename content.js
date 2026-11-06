@@ -35,21 +35,7 @@
   function text(node) { return node?.textContent?.trim() || ''; }
   function href(node) { return node?.getAttribute('href') || ''; }
 
-  function extractCard(card) {
-    const titleNode = card.querySelector('a#video-title, a#video-title-link, a.yt-lockup-metadata-view-model__title, a[href*="/watch?v="]');
-    const id = videoId(titleNode?.href || href(titleNode));
-    if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
-    const title = titleNode?.getAttribute('title') || text(titleNode) ||
-      text(card.querySelector('.yt-lockup-metadata-view-model__title, #video-title'));
-    if (!title || title.length < 3) return null;
-    const channelNode = card.querySelector('ytd-channel-name a, #channel-name a, .yt-content-metadata-view-model__metadata-text a, .yt-lockup-metadata-view-model__metadata a');
-    const channel = text(channelNode) || text(card.querySelector('ytd-channel-name')) ||
-      text(card.querySelector('.yt-content-metadata-view-model__metadata-text')) || '';
-    const channelId = href(channelNode).split('?')[0];
-    const spans = [...card.querySelectorAll('#metadata-line span, .inline-metadata-item, .yt-content-metadata-view-model__metadata-text')];
-    const publishedText = text(spans.find(s => /ago|yesterday|streamed/i.test(text(s))));
-    return { id, title, channel: channel.slice(0, 120), channelId, publishedText };
-  }
+  const extractCard = globalThis.YTRBGCardExtractor.extractCard;
 
   function scan() {
     scanTimer = null;
