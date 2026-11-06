@@ -11,6 +11,8 @@ let settings = { ...defaults };
 let snapshot = { counts: { liked: 0, candidates: 0, unseen: 0 }, recommendations: [], paused: false };
 let resetting = false;
 let refreshTimer = null;
+let lastApiSyncStatus = null;
+const OAUTH_STALE_MS = 150_000;
 const $ = id => document.getElementById(id);
 
 function request(msg) {
@@ -23,12 +25,24 @@ function request(msg) {
 function renderSyncStatus(status) {
   const area = $('api-sync-status');
   if (!status) return;
+  lastApiSyncStatus = status;
   const counts = status.counts || {};
   const numbers = [counts.likes !== undefined ? counts.likes + ' likes' : null,
     counts.subscriptions !== undefined ? counts.subscriptions + ' channels' : null,
     counts.uploads !== undefined ? counts.uploads + ' uploads' : null].filter(Boolean);
-  area.textContent = (status.message || '') + (numbers.length ? ' (' + numbers.join(', ') + ')' : '');
-  $('api-sync').disabled = !['complete', 'error'].includes(status.phase);
+  const elapsed = Date.now() - (Number(status.updatedAt) || Date.now());
+  // A worker can be terminated during OAuth while its last persisted status
+  // remains "auth". Do not leave the popup's Sync button disabled forever.
+  const staleAuth = status.phase === 'auth' && elapsed >= OAUTH_STALE_MS;
+  if (staleAuth) {
+    area.textContent = 'Google authorization did not complete. Check for a hidden Brave ' +
+      'sign-in window and verify the exact registered redirect URI. Close the old window before retrying.';
+  } else {
+    area.textContent = (status.message || '') +
+      (numbers.length ? ' (' + numbers.join(', ') + ')' : '') +
+      (status.phase === 'auth' ? ' · ' + Math.floor(elapsed / 1000) + 's elapsed' : '');
+  }
+  $('api-sync').disabled = !staleAuth && !['complete', 'error'].includes(status.phase);
 }
 function showError(error) {
   const el = $('error');
@@ -248,13 +262,19 @@ async function initialize() {
   });
   const syncStatus = (await chrome.storage.local.get(API_SYNC_KEY))[API_SYNC_KEY];
   if (syncStatus) renderSyncStatus(syncStatus);
+  // Only runs while the extension popup is open. The background worker still
+  // owns the operation, but the UI now detects orphaned persisted auth state.
+  setInterval(() => {
+    if (lastApiSyncStatus?.phase === 'auth') renderSyncStatus(lastApiSyncStatus);
+  }, 5000);
   $('api-sync').addEventListener('click', async () => {
     const btn = $('api-sync');
     btn.disabled = true;
     try {
       const response = await request({ type: 'API_SYNC_START' });
       $('api-sync-status').textContent = response.result.started
-        ? 'Google authorization requested…' : 'An import is already running.';
+        ? 'Opening Google authorization window… Check other Brave windows.'
+        : 'An import is already running. Check for an open authorization window.';
     } catch (error) {
       showError(error);
       btn.disabled = false;
