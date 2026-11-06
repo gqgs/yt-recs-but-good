@@ -38,14 +38,24 @@ The Google access token is handled by Chrome's Identity API; it is never written
 
 Google authorization, consent screen configuration, API quota, or Brave-specific Identity behavior may prevent syncing. If so, the extension still works through browsing. A public release would require an appropriate OAuth app, verification where applicable, and review of YouTube API policies, including data-retention and refresh obligations.
 
+## Homepage quality-of-life fixes
+
+- **Actual video titles:** candidate extraction now finds explicit title elements before considering the video's watch link. Thumbnail overlays like "Watch" or video-duration badges are not used as titles.
+- **Advertisement filtering:** recognizable YouTube-sponsored slots/badges are excluded during collection. Previously saved candidates whose title was only "Watch", "Upcoming", or a duration are excluded from ranking.
+- **Explanations on demand:** the explanation for a recommendation is behind a collapsed *Why this video?* control instead of being visible on every card.
+- **Progressive feed:** the Home grid initially shows 12 recommendations and appends 12 more as you approach the bottom. A *Load more recommendations* button is available if automatic scrolling does not trigger.
+- **Finite pool:** scrolling continues only while eligible locally discovered/imported videos remain; it does not scrape or fabricate additional content.
+
+**After updating the extension:** reload it in `brave://extensions` or `chrome://extensions`, then reload YouTube. Some previously collected entries are deliberately hidden because they contained overlay/duration text instead of real titles; revisiting subscriptions or running the opt-in API import will refill the local pool with correctly titled videos. The fix does not silently delete your stored likes or watch-history events.
+
 ## What is implemented
 
-- **Home-page replacement.** Your ranked feed is the default at youtube.com, with a switch to restore original YouTube. The popup controls preferences and optional import.
+- **Home-page replacement.** Your ranked feed is the default at youtube.com, with progressive loading and a switch to restore original YouTube. The popup controls preferences and optional import.
 - **No OAuth needed for browsing and no background polling.** A Manifest V3 content script observes the YouTube pages you visit (home, search, subscriptions, related videos, channel pages and your liked playlist). Video titles, channel names, and upload-age text become candidates. There is no attempt to scrape unseen uploads.
 - **Feedback captured as events.** Clicking YouTube's Like/Unlike button is recorded when the extension can confirm the button's changed pressed state. The extension also supports explicit local feedback. Subscriptions/unsubscriptions from the watch page are recorded on a best-effort basis.
 - **Watch markers.** The extension records watches when playback starts, plus an approximate maximum playback position. A video merely appearing on screen does not count as watched.
 - **Continuously updated preferences.** A preference profile is rebuilt from your current likes and dislikes, weighted by a configurable feedback half-life (30/90/365 days or nearly static). Earlier feedback decays; more recent feedback has greater influence.
-- **Inspectability.** Recommendations include a short explanation, such as matched liked topics or subscribed channels.
+- **Inspectability.** Recommendations include an optional collapsed explanation, such as matched liked topics or subscribed channels.
 - **Control over the feed.** Three ranking modes (For you / Explore / Recent), an exploration setting, a diversity setting, a cap of two recommendations per channel in the first selection pass, and a toggle for previously watched videos.
 - **Private by default.** Video metadata, feedback, and event history are stored in `chrome.storage.local`. You can export a JSON snapshot or delete local data in the popup.
 
