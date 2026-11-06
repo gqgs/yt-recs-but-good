@@ -250,7 +250,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         exploration: Number.isFinite(stored.exploration) ? stored.exploration : 15,
         halfLifeDays: [30, 90, 365, 3650].includes(stored.halfLifeDays) ? stored.halfLifeDays : 90,
         showSeen: stored.showSeen === true,
-        limit: 60
+        limit: 100
       };
       const items = Object.values(state.items);
       const likes = items.filter(v => v.feedback === 'like').length;
