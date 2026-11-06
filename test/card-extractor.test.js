@@ -98,3 +98,34 @@ test('captures classic metadata and leaves missing values absent', () => {
   assert.equal(without.viewCountText, '');
   assert.equal(without.publishedText, '');
 });
+
+test('extracts metadata from current camelCase YouTube view-model elements', () => {
+  const card = fakeCard({ title: 'A new mathematics lecture', metadata: [] });
+  card.querySelectorAll = selectors => {
+    assert.match(selectors, /ytContentMetadataViewModelMetadataText/);
+    assert.match(selectors, /yt-content-metadata-view-model-wiz__metadata-text/);
+    return [
+      el('1.7M views', { 'aria-label': '1.7 million views' }),
+      el('4 hours ago')
+    ];
+  };
+  const result = extractCard(card);
+  assert.equal(result.viewCountText, '1.7 million views');
+  assert.equal(result.publishedText, '4 hours ago');
+});
+test('reads wiz metadata rows with combined views and upload age', () => {
+  const card = fakeCard({ title: 'The art of finding things', metadata: [] });
+  card.querySelectorAll = selector => {
+    assert.match(selector, /yt-content-metadata-view-model-wiz__metadata-row/);
+    return [el('15K views · 2 days ago')];
+  };
+  const result = extractCard(card);
+  assert.equal(result.viewCountText, '15K views');
+  assert.equal(result.publishedText, '2 days ago');
+});
+test('does not treat title text as view metadata', () => {
+  const card = fakeCard({ title: 'A million views in two days', metadata: [] });
+  const result = extractCard(card);
+  assert.equal(result.viewCountText, '');
+  assert.equal(result.publishedText, '');
+});
