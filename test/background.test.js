@@ -106,6 +106,54 @@ test('OAuth sync requires an explicitly configured application', async () => {
   assert.equal(response.ok, false);
   assert.match(response.error, /OAuth.*client ID/);
 });
+test('popup summary avoids returning the entire local dataset', async () => {
+  const payload = await message({ type: 'GET_POPUP_DATA' });
+  assert.equal(payload.ok, true);
+  assert.ok(Array.isArray(payload.result.recommendations));
+  assert.ok(payload.result.counts);
+  assert.ok(payload.result.recommendations.length <= 12);
+  assert.equal('items' in payload.result, false);
+});
+test('candidate-only purge preserves liked examples and history', async () => {
+  const seed = 'aabbccdd123';
+  const unseen = 'aabbccdd124';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id: seed, title: 'Loved physics lecture', channel: 'Physics' },
+    { id: unseen, title: 'Another physics lecture', channel: 'Physics' }
+  ] });
+  await message({ type: 'FEEDBACK', id: seed, rating: 'like' });
+  const purge = await message({ type: 'CLEAR_CANDIDATES' });
+  assert.equal(purge.ok, true);
+  assert.ok(purge.result.removed >= 2);
+  const state = (await message({ type: 'GET_STATE' })).state;
+  assert.equal(state.items[seed].feedback, 'like');
+  assert.equal(state.items[seed].candidate, false);
+  assert.equal(state.items[unseen], undefined);
+  assert.ok(state.visitedIds[VID_B] > 0);
+});
+test('full reset pauses collection and cannot immediately reimport old candidates', async () => {
+  const deleted = await message({ type: 'RESET' });
+  assert.equal(deleted.ok, true);
+  assert.equal(deleted.result.paused, true);
+  const after = (await message({ type: 'GET_STATE' })).state;
+  assert.deepEqual(after.items, {});
+  assert.deepEqual(after.visitedIds, {});
+  const paused = await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id: 'aabbccdd125', title: 'Should not return', channel: 'Video Test' }
+  ] });
+  assert.equal(paused.result.skipped, true);
+  assert.equal(Object.keys((await message({ type: 'GET_STATE' })).state.items).length, 0);
+  const summary = await message({ type: 'GET_POPUP_DATA' });
+  assert.equal(summary.result.paused, true);
+  assert.equal(summary.result.counts.candidates, 0);
+  const resumed = await message({ type: 'COLLECTION_RESUME' });
+  assert.equal(resumed.result.paused, false);
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id: 'aabbccdd125', title: 'Newly collected video', channel: 'Video Test' }
+  ] });
+  const state = (await message({ type: 'GET_STATE' })).state;
+  assert.equal(state.items['aabbccdd125'].candidate, true);
+});
 test.after(() => { globalThis.chrome = oldChrome; });
 
 test('records view metadata discovered from page cards and prefers newer API statistics', async () => {
