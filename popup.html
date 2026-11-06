@@ -99,6 +99,17 @@
     <p class="disclaimer">Use YouTube's Like button as explicit feedback. Popup ratings affect this extension only. Videos are collected when you browse; no upload polling or Google login is used.</p>
     <p class="error" id="error" role="alert" hidden></p>
   </main>
+  <section id="confirm-overlay" class="confirm-overlay" hidden>
+    <div id="confirm-panel" class="confirm-panel" role="alertdialog"
+      aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-description"></p>
+      <div class="confirm-actions">
+        <button id="confirm-cancel" type="button" class="secondary">Cancel</button>
+        <button id="confirm-proceed" type="button" class="destructive">Delete</button>
+      </div>
+    </div>
+  </section>
   <script type="module" src="popup.js"></script>
 </body>
 </html>
