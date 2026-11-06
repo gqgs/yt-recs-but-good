@@ -80,3 +80,10 @@ h2{font-size:14px;margin:0;letter-spacing:-.25px}
 .history-import p{font-size:11px;line-height:1.5;color:#a3a5b4}
 .history-import button{padding:9px 12px;border-radius:7px}
 .history-import button:disabled{opacity:.6;cursor:wait}
+
+.paused-notice{margin-top:14px;padding:14px;border:1px solid #65546f;background:#201b2a;border-radius:10px}
+.paused-notice p{font-size:11px;line-height:1.5;color:#bcb8c9}
+.paused-notice button{border-radius:7px;padding:9px 14px;font-weight:600}
+.footer-tools{gap:8px;flex-wrap:wrap}
+.footer-tools button:disabled{opacity:.55;cursor:wait}
+#reset-status{font-size:11px;line-height:1.5;color:#bcb8c9}
