@@ -2,6 +2,7 @@ import { rankVideos } from './lib/recommender.js';
 
 const SETTINGS_KEY = 'yt-recs-settings-v1';
 const HOME_KEY = 'yt-recs-home-enabled-v1';
+const API_SYNC_KEY = 'yt-recs-api-sync-v1';
 const defaults = { mode: 'personalized', diversity: 55, exploration: 15,
   halfLifeDays: 90, showSeen: false, limit: 30 };
 let settings = { ...defaults };
@@ -13,6 +14,17 @@ function request(msg) {
     if (!response?.ok) throw new Error(response?.error || 'Extension service unavailable');
     return response;
   });
+}
+
+function renderSyncStatus(status) {
+  const area = $('api-sync-status');
+  if (!status) return;
+  const counts = status.counts || {};
+  const numbers = [counts.likes !== undefined ? counts.likes + ' likes' : null,
+    counts.subscriptions !== undefined ? counts.subscriptions + ' channels' : null,
+    counts.uploads !== undefined ? counts.uploads + ' uploads' : null].filter(Boolean);
+  area.textContent = (status.message || '') + (numbers.length ? ' (' + numbers.join(', ') + ')' : '');
+  $('api-sync').disabled = !['complete', 'error'].includes(status.phase);
 }
 function showError(error) {
   const el = $('error');
@@ -133,6 +145,20 @@ async function initialize() {
     chrome.storage.local.set({ [HOME_KEY]: $('replace-home').checked }).catch(showError);
   });
   $('open-home').addEventListener('click', () => open('https://www.youtube.com/'));
+  const syncStatus = (await chrome.storage.local.get(API_SYNC_KEY))[API_SYNC_KEY];
+  if (syncStatus) renderSyncStatus(syncStatus);
+  $('api-sync').addEventListener('click', async () => {
+    const btn = $('api-sync');
+    btn.disabled = true;
+    try {
+      const response = await request({ type: 'API_SYNC_START' });
+      $('api-sync-status').textContent = response.result.started
+        ? 'Google authorization requested…' : 'An import is already running.';
+    } catch (error) {
+      showError(error);
+      btn.disabled = false;
+    }
+  });
   for (const tab of document.querySelectorAll('[data-mode]')) {
     tab.addEventListener('click', () => setMode(tab.dataset.mode));
   }
@@ -175,6 +201,7 @@ async function initialize() {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     if (changes[HOME_KEY]) $('replace-home').checked = changes[HOME_KEY].newValue !== false;
+    if (changes[API_SYNC_KEY]) renderSyncStatus(changes[API_SYNC_KEY].newValue);
     if (changes['yt-recs-state-v1']) refresh().catch(showError);
   });
   await refresh();
