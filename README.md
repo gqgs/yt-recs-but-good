@@ -125,9 +125,12 @@ to the popup and batches UI updates.
   **pauses further collection** until you explicitly press **Resume collection**
   in the popup. That prevents YouTube Home from immediately repopulating the
   database as soon as it is emptied.
-- **Resume collection:** Once resumed, reload YouTube or visit subscriptions
-  to gather new candidates. The full reset does not affect your actual YouTube
-  account.
+- **Resume collection:** After a full reset, collection remains paused. The
+  YouTube Home empty state shows **Collection paused after reset** with a
+  **Resume and browse subscriptions** action. The popup also shows a prominent
+  **Resume collection** control. Resuming clears the current content script's
+  deduplication cache so already-visible cards can be indexed again without
+  waiting for another reload. The reset does not affect your YouTube account.
 - **Export local data:** The large full-dataset snapshot is only transferred
   into the popup when you explicitly export it, not every time the UI updates.
 - Popup and homepage storage reactions are debounced to avoid redundant
@@ -141,6 +144,17 @@ Do not clear global Brave browsing data to repair extension state.
 Note: the freeze itself was not reproduced in an interactive Brave session,
 so this is a prevention-oriented fix based on the code paths rather than a
 confirmed root cause.
+
+## Homepage reset recovery and navigation controls
+
+The YouTube Home page now explicitly distinguishes **collection paused after
+reset** from an ordinary empty candidate pool. Users can resume collection and
+open subscriptions directly from the empty state. Merely visiting the Likes or
+Subscriptions pages while collection is paused will not add data.
+
+The **Original YouTube** toggle is located in the controls row beneath the
+headline, avoiding the YouTube masthead and top overlay that could partially
+hide the old header-mounted button.
 
 ## Homepage quality-of-life fixes
 
