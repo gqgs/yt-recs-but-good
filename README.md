@@ -74,6 +74,24 @@ Newly observed cards use additional selectors for modern YouTube channel view-mo
 Old cached entries with no recognizable metadata show "Channel unavailable" until
 rediscovered or enriched via the optional API import; we don't invent a channel name.
 
+## Video metadata
+
+The curated Home cards show the channel name, **view count** and **relative upload age**
+where YouTube provides that information, using a familiar line such as
+`243K views · 3 weeks ago`.
+
+- DOM-collected cards parse the view-count label and upload age separately from
+  classic and modern YouTube metadata rows.
+- The optional Google API import retrieves exact publication timestamps and
+  requests `videos.list(part=statistics)` for recently collected uploads in
+  bounded batches (up to 50 video IDs per lookup).
+- Relative upload ages are recalculated from stored timestamps. API statistics
+  are preferred over previously collected, possibly stale view-count labels.
+- Existing local records are retained. Previously collected videos may be
+  missing view counts or upload ages until you revisit their source page or
+  run a new opt-in API sync; missing metadata is omitted, not fabricated.
+- Video view counts are not refreshed continuously in the background.
+
 ## Homepage quality-of-life fixes
 
 - **Actual video titles:** candidate extraction now finds explicit title elements before considering the video's watch link. Thumbnail overlays like "Watch" or video-duration badges are not used as titles.
@@ -86,7 +104,7 @@ rediscovered or enriched via the optional API import; we don't invent a channel 
 
 ## What is implemented
 
-- **Home-page replacement.** Your ranked feed is the default at youtube.com, with progressive loading and a switch to restore original YouTube. The popup controls preferences and optional import.
+- **Home-page replacement.** Your ranked feed is the default at youtube.com, showing channel, view count and upload age when available, with progressive loading and a switch to restore original YouTube. The popup controls preferences and optional import.
 - **No OAuth needed for browsing and no background polling.** A Manifest V3 content script observes the YouTube pages you visit (home, search, subscriptions, related videos, channel pages and your liked playlist). Video titles, channel names, and upload-age text become candidates. There is no attempt to scrape unseen uploads.
 - **Feedback captured as events.** Clicking YouTube's Like/Unlike button is recorded when the extension can confirm the button's changed pressed state. The extension also supports explicit local feedback. Subscriptions/unsubscriptions from the watch page are recorded on a best-effort basis.
 - **Watch markers.** The extension records watches when playback starts, plus an approximate maximum playback position. A video merely appearing on screen does not count as watched.
