@@ -66,3 +66,11 @@ h2{font-size:14px;margin:0;letter-spacing:-.25px}
 .home-control small{font-size:11px;color:#a09cab;line-height:1.35}
 .home-control input{width:17px;height:17px;accent-color:#ae9bfa;cursor:pointer}
 .home-control .primary{width:100%;padding:10px;border-radius:7px;font-weight:700}
+
+.api-import{border:1px solid #343446;border-radius:10px;padding:12px;margin-top:12px;background:#14151d}
+.api-import-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.api-import-optional{font-size:9px;letter-spacing:1px;color:#a7a9b3;font-weight:750}
+.api-import p{font-size:11px;color:#a2a3b1;line-height:1.45;margin:8px 0 10px}
+.api-import button{padding:9px 12px;border-radius:7px;font-weight:650}
+.api-import button:disabled{opacity:.6;cursor:wait}
+.api-import a{color:#c1b2ff}
