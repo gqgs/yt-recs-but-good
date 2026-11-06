@@ -1,3 +1,5 @@
+import { relativeAgeDays } from './lib/recommender.js';
+
 // Privacy-first persistence and event log. All activity remains in chrome.storage.local.
 const KEY = 'yt-recs-state-v1';
 const MAX_ITEMS = 4000;
@@ -7,15 +9,8 @@ const validId = id => typeof id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(id);
 const empty = () => ({ items: {}, channels: {}, events: [] });
 const DAY = 86_400_000;
 function estimatePublishedAt(label, now) {
-  const value = clean(label, 80).toLowerCase();
-  if (!value) return null;
-  if (/just now|today|hour|minute|second/.test(value)) return now;
-  if (/yesterday/.test(value)) return now - DAY;
-  const match = value.match(/(\\d[\\d,.]*)\\s+(day|week|month|year)s?\\s+ago/);
-  if (!match) return null;
-  const n = Number(match[1].replace(/,/g, ''));
-  if (!Number.isFinite(n)) return null;
-  return now - n * { day: DAY, week: 7 * DAY, month: 30 * DAY, year: 365 * DAY }[match[2]];
+  const days = relativeAgeDays(label);
+  return days === null ? null : now - days * DAY;
 }
 
 async function readState() {
