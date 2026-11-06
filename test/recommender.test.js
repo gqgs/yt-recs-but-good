@@ -108,10 +108,10 @@ test('visited and YouTube progress marked videos are excluded unless showSeen', 
 });
 
 test('hours and minutes are correctly interpreted as fractional days', () => {
-  assert.equal(relativeAgeDays('4 hours ago'), 4/24);
-  assert.equal(relativeAgeDays('30 minutes ago'), 30/1440);
-  assert.equal(relativeAgeDays('45 seconds ago'), 45/86400);
-  assert.equal(relativeAgeDays('Streamed 2 hours ago'), 2/24);
+  assert.ok(Math.abs(relativeAgeDays('4 hours ago') - 4/24) < 1e-12);
+  assert.ok(Math.abs(relativeAgeDays('30 minutes ago') - 30/1440) < 1e-12);
+  assert.ok(Math.abs(relativeAgeDays('45 seconds ago') - 45/86400) < 1e-12);
+  assert.ok(Math.abs(relativeAgeDays('Streamed 2 hours ago') - 2/24) < 1e-12);
 });
 
 test('legacy publication timestamps equal to capture time are corrected without deleting data', () => {
