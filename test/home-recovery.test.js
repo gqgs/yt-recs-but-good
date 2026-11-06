@@ -26,3 +26,12 @@ test('resuming collection clears stale in-page deduplication state', () => {
   assert.match(content, /seenCards\.clear\(\)/);
   assert.match(content, /scheduleScan\(\)/);
 });
+
+test('Home checks the candidate TTL without interactive login on page visits', () => {
+  assert.match(home, /requestCandidateRefresh\(false\)/);
+  assert.match(home, /document\.addEventListener\('visibilitychange'/);
+  assert.match(home, /REFRESH_CANDIDATES', force, interactive: force/);
+  assert.match(home, /button\('Refresh uploads'/);
+  assert.match(home, /refresh\.label/);
+  assert.match(styles, /\.ytrbg-refresh-status/);
+});
