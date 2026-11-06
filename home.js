@@ -151,8 +151,8 @@
     anchor.append(img);
     const title = link(video.title, video.url, 'ytrbg-title');
     title.title = video.title;
-    const meta = node('div', 'ytrbg-meta',
-      [video.channel, video.publishedText].filter(Boolean).join(' · '));
+    const channel = node('div', 'ytrbg-channel', video.channel || 'Channel unavailable');
+    const meta = node('div', 'ytrbg-meta', video.publishedText || '');
     const explain = node('details', 'ytrbg-why');
     const summary = node('summary', '', 'Why this video?');
     const explanation = node('p', '', video.reason || 'Selected by your local recommendation policy.');
@@ -163,7 +163,7 @@
     }), button('Not for me', '', () => {
       mark(video, 'FEEDBACK', 'less').catch(showError);
     }));
-    el.append(anchor, title, meta, actions, explain);
+    el.append(anchor, title, channel, meta, actions, explain);
     return el;
   }
 
@@ -201,15 +201,24 @@
     const children = [makeHeader()];
     const toolbar = node('div', 'ytrbg-toolbar');
     toolbar.append(makeTabs(), node('div', 'ytrbg-stats',
-      counts.likes + ' likes · ' + counts.unseen + ' unseen candidates'));
+      counts.likes + ' likes · ' + counts.unseen + ' unseen candidates · ' +
+      (settings.discoveryOnly !== false ? 'Discovery sources only' : 'All sources')));
     children.push(toolbar);
     if (!recommendations.length) {
       const empty = node('section', 'ytrbg-empty');
       empty.append(node('h2', '', 'No recommendations yet'),
-        node('p', '', 'Collect more candidates by visiting subscriptions or performing an optional API import. Previously saved ads and broken titles are filtered.'));
+        node('p', '', settings.discoveryOnly !== false
+          ? 'Discovery mode excludes candidates seen only on YouTube Home or Related. Visit subscriptions, channels, or searches to populate the independent candidate pool, or import subscriptions through the API.'
+          : 'Collect more candidates by visiting subscriptions or performing an optional API import. Previously saved ads and broken titles are filtered.'));
       const actions = node('div', 'ytrbg-empty-actions');
       actions.append(link('Browse subscriptions', '/feed/subscriptions', 'ytrbg-primary'),
         link('Open Liked videos', '/playlist?list=LL', 'ytrbg-secondary'));
+      if (settings.discoveryOnly !== false) {
+        actions.append(button('Include Home candidates', 'ytrbg-secondary', () => {
+          chrome.storage.local.set({ [SETTINGS_KEY]: { ...settings, discoveryOnly: false } })
+            .catch(showError);
+        }));
+      }
       empty.append(actions);
       children.push(empty);
     } else {
