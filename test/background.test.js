@@ -22,7 +22,9 @@ globalThis.chrome = {
       return result;
     },
     async set(values) { Object.assign(state, values); },
-    async remove(key) { delete state[key]; }
+    async remove(keys) {
+      for (const key of Array.isArray(keys) ? keys : [keys]) delete state[key];
+    }
   }},
   permissions: { async contains() { return true; } },
   history: {
