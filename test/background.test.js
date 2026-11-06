@@ -157,9 +157,9 @@ test('full reset pauses collection and cannot immediately reimport old candidate
   ] });
   const state = (await message({ type: 'GET_STATE' })).state;
   assert.equal(state.items['aabbccdd125'].candidate, true);
-  const home = await message({ type: 'GET_RECOMMENDATIONS' });
-  assert.equal(home.result.paused, false);
-  assert.equal(home.result.recommendations[0].id, 'aabbccdd125');
+  const resumedHome = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(resumedHome.result.paused, false);
+  assert.equal(resumedHome.result.recommendations[0].id, 'aabbccdd125');
 });
 test.after(() => { globalThis.chrome = oldChrome; });
 
