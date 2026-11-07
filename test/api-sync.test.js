@@ -234,3 +234,22 @@ test('an unresponsive YouTube API request times out and aborts rather than hangi
   );
   assert.equal(signal.aborted, true);
 });
+
+test('automatic refresh can cap subscription pages without changing full imports', async () => {
+  let calls = 0;
+  const fetcher = async url => {
+    const u = new URL(url);
+    assert.equal(u.searchParams.get('maxResults'), '50');
+    calls++;
+    return { ok: true, json: async () => ({
+      items: [{ snippet: {
+        resourceId: { channelId: 'UC' + String(calls).padStart(22, '0') },
+        title: 'Subscribed channel ' + calls
+      } }],
+      nextPageToken: 'page-' + calls
+    }) };
+  };
+  const limited = await fetchSubscriptions('token', { fetcher, maxPages: 4 });
+  assert.equal(limited.length, 4);
+  assert.equal(calls, 4);
+});
