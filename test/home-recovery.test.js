@@ -99,3 +99,8 @@ test('For you and Explore distinguish a finite recommendation shortlist from the
   assert.match(home, /' · End of shortlist'/);
   assert.doesNotMatch(home, /' · All caught up'/);
 });
+
+test('Recent header distinguishes eligible inventory outside the current window', () => {
+  assert.match(home, /recentTotal - recentWindow/);
+  assert.match(home, /outsideWindow \+ ' outside loaded window/);
+});
