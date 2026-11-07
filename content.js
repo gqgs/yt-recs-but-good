@@ -42,13 +42,13 @@
     const source = pageSource();
     if (source === 'other') return;
     const cards = document.querySelectorAll(
-      'ytd-rich-grid-media, ytd-video-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model');
+      'ytd-rich-grid-media, ytd-video-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model, ytd-rich-grid-slim-media, ytd-reel-item-renderer, yt-shorts-lockup-view-model');
     const fresh = [];
     for (const card of cards) {
       if (fresh.length >= 120) break;
       const video = extractCard(card);
       if (!video) continue;
-      const key = source + ':' + video.id + ':' + video.title + ':' + video.channel + ':' + video.publishedText + ':' + video.hasResume + ':' + video.viewCountText;
+      const key = source + ':' + video.id + ':' + video.title + ':' + video.channel + ':' + video.publishedText + ':' + video.hasResume + ':' + video.viewCountText + ':' + video.isShort;
       if (seenCards.has(key)) continue;
       seenCards.add(key);
       fresh.push(video);

@@ -5,7 +5,7 @@ const HOME_KEY = 'yt-recs-home-enabled-v1';
 const API_SYNC_KEY = 'yt-recs-api-sync-v1';
 const REFRESH_KEY = 'yt-recs-candidate-refresh-v1';
 const defaults = { mode: 'personalized', diversity: 55, exploration: 15,
-  halfLifeDays: 90, showSeen: false, discoveryOnly: true, limit: 30,
+  halfLifeDays: 90, showSeen: false, discoveryOnly: true, hideShorts: true, limit: 30,
   autoRefreshEnabled: true, refreshTtlMinutes: 60 };
 let settings = { ...defaults };
 let snapshot = { counts: { liked: 0, candidates: 0, unseen: 0 }, recommendations: [], paused: false };
@@ -84,6 +84,7 @@ function syncOptions() {
     ? Number(settings.refreshTtlMinutes) : 60);
   $('show-seen').checked = settings.showSeen;
   $('discovery-only').checked = settings.discoveryOnly !== false;
+  $('hide-shorts').checked = settings.hideShorts !== false;
   $('diversity-value').textContent = settings.diversity + '%';
   $('exploration-value').textContent = settings.exploration + '%';
   for (const tab of document.querySelectorAll('[data-mode]')) {
@@ -134,7 +135,14 @@ function renderVideo(video, index) {
       feedback(video.id, video.feedback === 'like' ? 'clear' : 'like').catch(showError);
     }),
     button('Not for me', '', () => feedback(video.id, 'less').catch(showError)),
-    button('Seen', '', () => markSeen(video.id).catch(showError))
+    button('Seen', '', () => markSeen(video.id).catch(showError)),
+    button(video.shortOverride === true ? 'Not a Short' : 'Mark as Short', '', async () => {
+      try {
+        await request({ type: 'MARK_SHORT', id: video.id,
+          isShort: video.shortOverride !== true });
+        await refresh();
+      } catch (error) { showError(error); }
+    })
   );
   info.append(actions);
   card.append(thumbnail, info);
@@ -308,6 +316,10 @@ async function initialize() {
     settings.discoveryOnly = $('discovery-only').checked;
     void persistSettings(); render();
   });
+  $('hide-shorts').addEventListener('change', () => {
+    settings.hideShorts = $('hide-shorts').checked;
+    void persistSettings().then(() => refresh()).catch(showError);
+  });
   $('auto-refresh-enabled').addEventListener('change', () => {
     settings.autoRefreshEnabled = $('auto-refresh-enabled').checked;
     void persistSettings();
@@ -410,7 +422,7 @@ async function initialize() {
     if (changes[HOME_KEY]) $('replace-home').checked = changes[HOME_KEY].newValue !== false;
     if (changes[API_SYNC_KEY]) renderSyncStatus(changes[API_SYNC_KEY].newValue);
     if (changes['yt-recs-state-v1'] || changes['yt-recs-collection-paused-v1'] ||
-        changes[REFRESH_KEY]) scheduleRefresh();
+        changes[REFRESH_KEY] || changes[SETTINGS_KEY]) scheduleRefresh();
   });
   await refresh();
 }

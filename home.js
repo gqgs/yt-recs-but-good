@@ -12,6 +12,7 @@
   let mountTimer = null;
   let requestId = 0;
   let refreshTimer = null;
+  let staleStatusTimer = null;
   const PAGE_SIZE = 12;
   let visibleCount = 0;
   let rankedVideos = [];
@@ -66,6 +67,8 @@
     await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
   }
   function cleanUp() {
+    clearTimeout(staleStatusTimer);
+    staleStatusTimer = null;
     scrollObserver?.disconnect();
     scrollObserver = null;
     gridElement = null;
@@ -144,10 +147,19 @@
   }
   async function mark(video, type, rating) {
     const data = type === 'MARK_SEEN' ? { type, id: video.id } :
+      type === 'MARK_SHORT' ? { type, id: video.id, isShort: rating } :
       { type, id: video.id, rating, origin: 'home-feed' };
     await send(data);
     await refresh();
   }
+  function probeFormats(videos) {
+    if (settings.hideShorts === false || !videos.length || !onHome()) return;
+    // No need to query every cached video. The worker uses a per-video
+    // result cache, a 24-ID batch maximum and a session request budget.
+    send({ type: 'PROBE_SHORTS_FORMAT', ids: videos.map(v => v.id) })
+      .catch(() => { /* Probing is optional; recommendations remain usable. */ });
+  }
+
   function card(video) {
     const el = node('article', 'ytrbg-card');
     const anchor = link('', video.url, 'ytrbg-thumbnail');
@@ -166,6 +178,15 @@
     const summary = node('summary', '', 'Why this video?');
     const explanation = node('p', '', video.reason || 'Selected by your local recommendation policy.');
     explain.append(summary, explanation);
+    // Manual format correction is not a dislike and does not affect the
+    // preference profile. It can be reversed after toggling Hide Shorts off.
+    const markedShort = video.shortOverride === undefined
+      ? Boolean(video.isShort || video.shortsFormat === 'portrait')
+      : video.shortOverride;
+    explain.append(button(markedShort ? 'Not a Short' : 'Mark as Short',
+      'ytrbg-short-label', () => {
+        mark(video, 'MARK_SHORT', !markedShort).catch(showError);
+      }));
     const actions = node('div', 'ytrbg-actions');
     actions.append(button('Seen', '', () => {
       mark(video, 'MARK_SEEN').catch(showError);
@@ -195,11 +216,27 @@
     if (!enabled || !onHome() || !gridElement?.isConnected) return;
     const next = Math.min(visibleCount + PAGE_SIZE, rankedVideos.length);
     for (let i = visibleCount; i < next; i++) gridElement.append(card(rankedVideos[i]));
+    const appended = rankedVideos.slice(visibleCount, next);
     visibleCount = next;
     updatePagination();
+    probeFormats(appended);
   }
   function render({ recommendations, counts, paused = false, refresh = {} }) {
     if (!ensureRoot() || !enabled) return;
+    clearTimeout(staleStatusTimer);
+    staleStatusTimer = null;
+    // Update the status when an in-flight operation should have expired, even
+    // if Brave killed the worker and no more storage events are emitted.
+    if (refresh.phase === 'running') {
+      const heartbeat = Number(refresh.lastProgressAt || refresh.lastAttemptAt || 0);
+      if (heartbeat > 0) {
+        const remaining = 150000 - (Date.now() - heartbeat);
+        staleStatusTimer = setTimeout(() => {
+          staleStatusTimer = null;
+          scheduleRefresh();
+        }, Math.max(500, remaining + 500));
+      }
+    }
     scrollObserver?.disconnect();
     scrollObserver = null;
     gridElement = null;

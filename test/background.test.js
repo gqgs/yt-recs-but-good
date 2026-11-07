@@ -69,6 +69,14 @@ globalThis.chrome = {
 // Simulate the official API with no external requests or credentials.
 globalThis.fetch = async (url, options) => {
   const parsed = new URL(url);
+  if (parsed.hostname === 'www.youtube.com' && parsed.pathname === '/oembed') {
+    const requested = new URL(parsed.searchParams.get('url'));
+    const id = requested.pathname.split('/').at(-1);
+    return { ok: true, json: async () => ({
+      width: id === 'portrait123' ? 113 : 200,
+      height: id === 'portrait123' ? 200 : 113
+    }) };
+  }
   if (parsed.hostname !== 'www.googleapis.com' ||
       options?.headers?.Authorization !== 'Bearer testing-token') {
     throw new Error('Unexpected network request during test');
@@ -101,6 +109,31 @@ function message(request) {
     assert.equal(typeof response, 'boolean');
   });
 }
+
+test('Home and popup share hide-Shorts preference and preserve cached Shorts', async () => {
+  const id = 'shortid1234';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'A genuine YouTube Short', isShort: true, channel: 'Channel A' },
+    { id: 'regular1234', title: 'A short but normal video', channel: 'Channel B' }
+  ] });
+  let home = await message({ type: 'GET_RECOMMENDATIONS' });
+  let popup = await message({ type: 'GET_POPUP_DATA' });
+  assert.deepEqual(home.result.recommendations.map(v => v.id), ['regular1234']);
+  assert.deepEqual(popup.result.recommendations.map(v => v.id), ['regular1234']);
+  await chrome.storage.local.set({ 'yt-recs-settings-v1': { hideShorts: false } });
+  home = await message({ type: 'GET_RECOMMENDATIONS' });
+  popup = await message({ type: 'GET_POPUP_DATA' });
+  assert.equal(home.result.recommendations.some(v => v.id === id), true);
+  assert.equal(popup.result.recommendations.some(v => v.id === id), true);
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'A genuine YouTube Short', channel: 'Channel A' }
+  ] });
+  const state = (await message({ type: 'GET_STATE' })).state;
+  assert.equal(state.items[id].isShort, true);
+  await message({ type: 'MARK_SEEN', id });
+  await message({ type: 'MARK_SEEN', id: 'regular1234' });
+  await chrome.storage.local.set({ 'yt-recs-settings-v1': {} });
+});
 
 test('records candidates, ranks on worker, and applies explicit feedback', async () => {
   await message({ type: 'CANDIDATES', source: 'liked', videos: [{
@@ -305,4 +338,66 @@ test('records view metadata discovered from page cards and prefers newer API sta
   assert.equal(state.items[ID].publishedAt, Date.parse('2025-05-01T00:00:00Z'));
   const result = await message({ type: 'GET_RECOMMENDATIONS' });
   assert.match(result.result.recommendations.find(v => v.id === ID).metadataLine, /50\.2K views/);
+});
+
+test('an orphaned running refresh is reported as interrupted, enabling a retry', async () => {
+  const oldTime = Date.now() - 200000;
+  await chrome.storage.local.set({
+    'yt-recs-candidate-refresh-v1': {
+      phase: 'running', message: 'Checking subscribed uploads',
+      lastAttemptAt: oldTime, lastProgressAt: oldTime
+    }
+  });
+  const popup = await message({ type: 'GET_POPUP_DATA' });
+  assert.equal(popup.result.refresh.phase, 'interrupted');
+  assert.match(popup.result.refresh.label, /interrupted/i);
+  const home = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(home.result.refresh.phase, 'interrupted');
+});
+
+test('manual Shorts labeling filters candidates without polluting preference feedback', async () => {
+  const id = 'markshort34';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'Video without API Shorts flag', channel: 'Clips' }
+  ] });
+  let view = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(view.result.recommendations.some(v => v.id === id), true);
+  const changed = await message({ type: 'MARK_SHORT', id, isShort: true });
+  assert.equal(changed.result.recorded, true);
+  view = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(view.result.recommendations.some(v => v.id === id), false);
+  let stored = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(stored.feedback, undefined);
+  assert.equal(stored.shortOverride, true);
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [{
+    id, title: 'Video without API Shorts flag', isShort: false, channel: 'Clips'
+  }] });
+  stored = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(stored.shortOverride, true);
+  await message({ type: 'MARK_SHORT', id, isShort: false });
+  view = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(view.result.recommendations.some(v => v.id === id), true);
+  await message({ type: 'MARK_SEEN', id });
+});
+
+test('on-demand oEmbed format probe filters API-only /watch URL videos', async () => {
+  const id = 'portrait123';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [{
+    id, title: 'Format probe candidate', channel: 'Clips'
+  }] });
+  const before = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
+  assert.equal(before.recommendations.some(v => v.id === id), true);
+  const probed = await message({ type: 'PROBE_SHORTS_FORMAT', ids: [id] });
+  assert.equal(probed.ok, true);
+  assert.equal(probed.result.checked, 1);
+  const state = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(state.shortsFormat, 'portrait');
+  assert.ok(state.shortsProbedAt);
+  const after = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
+  assert.equal(after.recommendations.some(v => v.id === id), false);
+  const repeated = await message({ type: 'PROBE_SHORTS_FORMAT', ids: [id] });
+  assert.equal(repeated.result.reason, 'cached');
+  await message({ type: 'MARK_SHORT', id, isShort: false });
+  const restored = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
+  assert.equal(restored.recommendations.some(v => v.id === id), true);
 });
