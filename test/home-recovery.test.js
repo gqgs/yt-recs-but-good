@@ -94,3 +94,8 @@ test('Recent does not auto-load more pages while a format batch is unresolved', 
   assert.match(home, /const canAutoExpand = moreToFetch && pendingFormatCount === 0/);
   assert.match(home, /recentHasMore && pendingFormatCount === 0/);
 });
+
+test('For you and Explore distinguish a finite recommendation shortlist from the candidate inventory', () => {
+  assert.match(home, /' · End of shortlist'/);
+  assert.doesNotMatch(home, /' · All caught up'/);
+});
