@@ -331,3 +331,18 @@ test('records view metadata discovered from page cards and prefers newer API sta
   const result = await message({ type: 'GET_RECOMMENDATIONS' });
   assert.match(result.result.recommendations.find(v => v.id === ID).metadataLine, /50\.2K views/);
 });
+
+test('an orphaned running refresh is reported as interrupted, enabling a retry', async () => {
+  const oldTime = Date.now() - 200000;
+  await chrome.storage.local.set({
+    'yt-recs-candidate-refresh-v1': {
+      phase: 'running', message: 'Checking subscribed uploads',
+      lastAttemptAt: oldTime, lastProgressAt: oldTime
+    }
+  });
+  const popup = await message({ type: 'GET_POPUP_DATA' });
+  assert.equal(popup.result.refresh.phase, 'interrupted');
+  assert.match(popup.result.refresh.label, /interrupted/i);
+  const home = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(home.result.refresh.phase, 'interrupted');
+});
