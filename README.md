@@ -166,6 +166,36 @@ Authorization uses `chrome.identity.launchWebAuthFlow()` with a registered HTTPS
 
 Google authorization, consent configuration, API quota, or browser behavior may still prevent syncing; browsing-based recommendations remain available. For broader distribution, review the YouTube API Services policies, including data-retention and refresh obligations.
 
+## Shorts classification before display
+
+The curated Home now **stages uncertain videos before rendering them** whenever
+Hide Shorts is enabled. Previously, the extension rendered all candidates and
+only then requested YouTube oEmbed format checks, so portrait-format videos
+flashed on screen for several seconds before disappearing.
+
+The new behavior separates the pool into:
+
+- **Ready to show:** Videos with a current, completed format check, videos with
+  explicit **Not a Short** overrides, or videos known to be eligible.
+- **Awaiting format verification:** API-imported videos that lack a completed
+  check, including those whose cached classifications have expired.
+
+The homepage renders ready videos immediately while sending bounded, cached
+requests for uncertain ones. If none are ready, it shows a **Checking video
+formats** state rather than briefly displaying provisional Shorts. The popup
+preview follows the same eligibility rule. Turning Hide Shorts off exposes
+both categories immediately.
+
+A rate-limited, failed, or interrupted format probe doesn't erase videos or
+change user preferences; uncertain candidates remain held and the homepage
+indicates verification is temporarily paused. A one-shot retry is scheduled
+after the cooldown. Existing oEmbed request caps and caching remain intact.
+
+**Trade-off:** The first visit with a fresh candidate pool may show fewer
+recommendations until their formats are checked. This is intentional: stable,
+verified suggestions are preferable to visible content appearing and then
+disappearing. Clearing the data is unnecessary.
+
 ## Hide Shorts and portrait clips (default: enabled)
 
 **Hide Shorts and portrait clips (best effort)** is enabled by default under
