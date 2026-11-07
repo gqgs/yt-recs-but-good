@@ -5,7 +5,7 @@ import { normalizeTtlMinutes, shouldRefresh, formatRefreshAge,
   selectSubscriptionRefreshBatch, CHANNELS_PER_REFRESH, REFRESH_STALE_MS } from './lib/refresh-policy.js';
 import { getGoogleAccessToken, clearGoogleAccessToken, configuredGoogleClientId } from './lib/google-auth.js';
 import { probeFormatBatch, SHORTS_PROBE_MAX_BATCH,
-  SHORTS_PROBE_WINDOW_MS } from './lib/shorts-probe.js';
+  SHORTS_PROBE_WINDOW_MS, SHORTS_PROBE_SOURCE } from './lib/shorts-probe.js';
 
 // Privacy-first persistence and event log. All activity remains in chrome.storage.local.
 const KEY = 'yt-recs-state-v1';
@@ -254,6 +254,9 @@ async function probeUnclassifiedCandidates(candidateIds) {
       const video = items[id];
       if (!validId(id) || !video || !video.candidate ||
           video.shortOverride !== undefined || video.isShort) return false;
+      // The previous oEmbed results cannot be carried over as CDN results:
+      // invalidate that classifier at read time without resetting user data.
+      if (video.shortsProbeSource !== SHORTS_PROBE_SOURCE) return true;
       const last = Number(video.shortsProbedAt || 0);
       const expiry = video.shortsFormat === 'unknown' ? 6 * 3600_000 : 30 * DAY;
       return !last || now - last > expiry;
@@ -278,6 +281,7 @@ async function probeUnclassifiedCandidates(candidateIds) {
         if (!video) continue;
         video.shortsFormat = format;
         video.shortsProbedAt = Date.now();
+        video.shortsProbeSource = SHORTS_PROBE_SOURCE;
       }
     });
     return { started: true, checked: results.size,
