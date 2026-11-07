@@ -166,6 +166,27 @@ Authorization uses `chrome.identity.launchWebAuthFlow()` with a registered HTTPS
 
 Google authorization, consent configuration, API quota, or browser behavior may still prevent syncing; browsing-based recommendations remain available. For broader distribution, review the YouTube API Services policies, including data-retention and refresh obligations.
 
+## Video duration and long-form portrait videos
+
+Curated Home and the extension popup now show a YouTube-style **duration badge**
+at the bottom-right of the thumbnail (for example `23:51` or `48:59`).
+The extension reads the native duration overlay when browsing YouTube and the
+`videos.list(part=contentDetails)` response during API import. Duration is
+available through the **same batched API request** already used for Shorts
+metadata, without another request per video.
+
+YouTube currently defines Shorts as up to **three minutes**. A known duration
+over 180 seconds therefore protects an otherwise vertical/portrait-format
+candidate from automatic Shorts exclusion. That includes regular portrait
+videos of 23:51 and 48:59, like the examples that motivated this change.
+An explicit manual **Mark as Short** still takes precedence, and an explicit
+**Not a Short** still overrides the automatic filter.
+
+A missing, live, or invalid duration is shown without a badge and is never
+fabricated. Existing stored video records gain duration on subsequent API
+refreshes or when the relevant video appears again in YouTube's page markup;
+there is **no need to delete the local recommendation cache**.
+
 ## Shorts classification before display
 
 The curated Home **stages uncertain candidates before rendering** whenever
@@ -232,11 +253,12 @@ The previous oEmbed and first-generation `oar2` classifications are
 automatically rechecked with the versioned `oar2-frame0-jpeg-v2` method on
 first use, without clearing preferences, watch history, or the candidate cache.
 
-**Limitations:** Portrait format is not an official Shorts flag. Regular
-portrait videos may be excluded, and some Shorts may remain eligible when
-a CDN variant is absent or has an unexpected shape. Video duration alone
-is never used. The option does not hide native Shorts shelves outside the
-curated recommender.
+**Limitations:** Portrait format is not an official Shorts flag. A
+regular portrait video with unknown duration may still be excluded, and some
+Shorts may remain eligible when a CDN variant is absent or unexpected.
+Known videos longer than three minutes bypass the portrait-based filter.
+Duration alone is **never** used to call a short video a Short. The option
+does not hide native Shorts shelves outside the curated recommender.
 
 ## Discovery and repeat filtering
 
