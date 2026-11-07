@@ -87,7 +87,7 @@ test('Recent incrementally expands beyond the initial 100 and distinguishes inve
   assert.match(home, /recentWindow = Math.min\(4000, recentWindow \+ RECENT_CHUNK\)/);
   assert.match(home, /recentLimit: settings.mode === 'recent' \? recentWindow : undefined/);
   assert.match(home, /recentTotal \+ ' eligible in Recent'/);
-  assert.match(home, /counts.unseen \+ ' unseen in pool'/);
+  assert.match(home, /counts\.unseen \+ ' unseen in pool/);
   assert.match(home, /'Load next 100 recent candidates'/);
 });
 test('Recent does not auto-load more pages while a format batch is unresolved', () => {
