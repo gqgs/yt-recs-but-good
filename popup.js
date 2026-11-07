@@ -168,16 +168,20 @@ function render() {
   $('onboarding').hidden = paused || ((counts.liked || 0) > 0 && (counts.candidates || 0) > 0);
   const results = $('results');
   results.replaceChildren();
-  const ranked = snapshot.recommendations || [];
+  const { ready: ranked, pending } = globalThis.YTRBGShortsVisibility.splitCandidates(
+    snapshot.recommendations || [], settings.hideShorts !== false);
   if (!ranked.length) {
     results.append(element('div', 'empty', paused
       ? 'Collection is paused after deleting all data. Resume it explicitly when ready.'
       : counts.candidates
-        ? 'No eligible recommendations. Browse subscriptions for more candidates or change your filters.'
+        ? pending.length
+          ? 'Checking video formats before showing uncertain recommendations. Open YouTube Home to run the checks.'
+          : 'No eligible recommendations. Browse subscriptions for more candidates or change your filters.'
         : 'No candidates yet. Visit subscriptions or perform the optional import.'));
     return;
   }
-  results.append(element('div', 'ranking-note', ranked.length + ' preview recommendations'));
+  results.append(element('div', 'ranking-note', ranked.length + ' preview recommendations' +
+    (pending.length ? ' · ' + pending.length + ' awaiting format check' : '')));
   for (const [i, video] of ranked.entries()) results.append(renderVideo(video, i));
 }
 
