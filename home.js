@@ -360,6 +360,8 @@
     rankedVideos = recommendations;
     recentTotal = Number.isInteger(totalEligible) ? totalEligible : 0;
     recentHasMore = settings.mode === 'recent' && moreRecent;
+    const outsideWindow = settings.mode === 'recent'
+      ? Math.max(0, recentTotal - recentWindow) : 0;
     pendingFormatCount = pendingFormats.length;
     const checkingPaused = pendingFormatCount && Date.now() < formatProbeCooldownUntil;
     const targetCount = Math.min(
@@ -398,6 +400,7 @@
     toolbar.append(node('div', 'ytrbg-stats',
       counts.likes + ' likes · ' + counts.unseen + ' unseen in pool · ' +
       (settings.mode === 'recent' ? recentTotal + ' eligible in Recent · ' : '') +
+      (outsideWindow ? outsideWindow + ' outside loaded window · ' : '') +
       (settings.discoveryOnly !== false ? 'Discovery sources only' : 'All sources') +
       (pendingFormatCount ? ' · ' + pendingFormatCount + ' checking format in current window' : '') +
       (heldBack ? ' · ' + heldBack + ' older uploads awaiting newer checks' : '')));
