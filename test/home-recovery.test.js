@@ -66,3 +66,10 @@ test('duration overlays render on Home and popup without altering titles', () =>
   assert.match(popup, /'duration-badge'/);
   assert.match(popup, /YTRBGShortsVisibility.formatDuration\(video.durationSeconds\)/);
 });
+
+test('Home can retry video duration enrichment without deleting candidates', () => {
+  assert.match(home, /REFRESH_VIDEO_DETAILS', ids, force/);
+  assert.match(home, /button\('Refresh details'/);
+  assert.match(home, /'yt-recs-video-details-status-v1'/);
+  assert.match(styles, /\.ytrbg-detail-status/);
+});
