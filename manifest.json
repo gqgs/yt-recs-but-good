@@ -28,6 +28,7 @@
       "js": [
         "lib/card-extractor.js",
         "content.js",
+        "lib/shorts-visibility.js",
         "home.js"
       ],
       "run_at": "document_idle",
