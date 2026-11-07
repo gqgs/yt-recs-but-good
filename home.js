@@ -24,6 +24,8 @@
   let formatProbeCooldownUntil = 0;
   let formatProbeRetryTimer = null;
   let pendingFormatCount = 0;
+  let detailsInFlight = false;
+  let lastDetailsRequestAt = 0;
 
 
   const onHome = () => location.pathname === '/';
@@ -49,6 +51,22 @@
       if (!response?.ok) throw new Error(response?.error || 'Extension unavailable');
       return response;
     });
+  }
+  function requestVideoDetails(force = false) {
+    if (!enabled || !onHome() || detailsInFlight ||
+        !force && Date.now() - lastDetailsRequestAt < 45_000) return;
+    const ids = rankedVideos.filter(video =>
+      !Number.isSafeInteger(video.durationSeconds) || video.durationSeconds <= 0)
+      .slice(0, 50).map(video => video.id);
+    if (!ids.length) return;
+    lastDetailsRequestAt = Date.now();
+    detailsInFlight = true;
+    send({ type: 'REFRESH_VIDEO_DETAILS', ids, force })
+      .catch(showError)
+      .finally(() => {
+        detailsInFlight = false;
+        if (enabled && onHome()) scheduleRefresh();
+      });
   }
   function requestCandidateRefresh(force = false) {
     if (!enabled || !onHome()) return;
@@ -269,7 +287,8 @@
     visibleCount = next;
     updatePagination();
   }
-  function render({ recommendations, counts, paused = false, refresh = {}, pendingFormats = [] }) {
+  function render({ recommendations, counts, paused = false, refresh = {},
+    detailStatus = {}, pendingFormats = [] }) {
     if (!ensureRoot() || !enabled) return;
     clearTimeout(staleStatusTimer);
     staleStatusTimer = null;
@@ -307,7 +326,22 @@
     const status = node('span', 'ytrbg-refresh-status', refresh.label || 'No upload refresh yet');
     status.title = refresh.message || status.textContent;
     status.setAttribute('role', 'status');
-    sync.append(refreshButton, status);
+    const detailsButton = button('Refresh details', 'ytrbg-refresh-button', () =>
+      requestVideoDetails(true));
+    detailsButton.disabled = paused || detailStatus.phase === 'running';
+    detailsButton.title = 'Refresh durations and view counts for already-collected videos';
+    const detailLabel = detailStatus.phase === 'error'
+      ? 'Video details failed'
+      : detailStatus.phase === 'running'
+      ? 'Fetching video details…'
+      : detailStatus.phase === 'ready'
+      ? (detailStatus.durationUpdates || 0) + ' durations · ' +
+        (detailStatus.viewUpdates || 0) + ' view counts updated'
+      : '';
+    const detailText = node('span', 'ytrbg-detail-status', detailLabel);
+    detailText.title = detailStatus.message || '';
+    detailText.setAttribute('role', 'status');
+    sync.append(refreshButton, status, detailsButton, detailText);
     toolbar.append(controls, sync);
     toolbar.append(node('div', 'ytrbg-stats',
       counts.likes + ' likes · ' + counts.unseen + ' unseen candidates · ' +
@@ -397,6 +431,7 @@
       const { ready, pending } = globalThis.YTRBGShortsVisibility.splitCandidates(
         response.result.recommendations, settings.hideShorts !== false);
       render({ ...response.result, recommendations: ready, pendingFormats: pending });
+      if (ready.length) requestVideoDetails(false);
     } catch (error) {
       if (id === requestId) showError(error);
     }
@@ -423,7 +458,8 @@
       }
       if (changes[HOME_KEY] || changes[SETTINGS_KEY] ||
           changes['yt-recs-state-v1'] || changes['yt-recs-collection-paused-v1'] ||
-          changes['yt-recs-candidate-refresh-v1'])
+          changes['yt-recs-candidate-refresh-v1'] ||
+          changes['yt-recs-video-details-status-v1'])
         scheduleRefresh();
     });
     document.addEventListener('yt-navigate-finish', () => {
