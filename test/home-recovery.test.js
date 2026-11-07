@@ -41,3 +41,12 @@ test('Home schedules a recovery status check if an in-flight refresh stops updat
   assert.match(home, /refresh\.lastProgressAt \|\| refresh\.lastAttemptAt/);
   assert.match(home, /clearTimeout\(staleStatusTimer\)/);
 });
+
+test('Home splits uncertain candidates before rendering the grid', () => {
+  const split = home.indexOf('YTRBGShortsVisibility.splitCandidates(');
+  const render = home.indexOf('render({ ...response.result, recommendations: ready, pendingFormats: pending })');
+  assert.ok(split > 0 && render > split);
+  assert.doesNotMatch(home, /probeFormats\(appended\)/);
+  assert.match(home, /pendingFormatCount \? 'Checking video formats'/);
+  assert.match(home, /probeFormats\(pendingFormats\)/);
+});
