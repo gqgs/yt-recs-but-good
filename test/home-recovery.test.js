@@ -7,7 +7,7 @@ const styles = readFileSync(new URL('../home.css', import.meta.url), 'utf8');
 const content = readFileSync(new URL('../content.js', import.meta.url), 'utf8');
 
 test('empty Home distinguishes paused collection from an empty recommendation pool', () => {
-  assert.match(home, /function render\(\{ recommendations, counts, paused = false, refresh = \{\} \}\)/);
+  assert.match(home, /function render\(\{ recommendations, counts, paused = false, refresh = \{\}, pendingFormats = \[\] \}\)/);
   assert.match(home, /'Collection paused after reset'/);
   assert.match(home, /'Resume and browse subscriptions'/);
   assert.match(home, /send\(\{ type: 'COLLECTION_RESUME' \}\)/);
