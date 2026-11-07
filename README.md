@@ -166,41 +166,43 @@ Authorization uses `chrome.identity.launchWebAuthFlow()` with a registered HTTPS
 
 Google authorization, consent configuration, API quota, or browser behavior may still prevent syncing; browsing-based recommendations remain available. For broader distribution, review the YouTube API Services policies, including data-retention and refresh obligations.
 
-## Hide YouTube Shorts (default: enabled)
+## Hide Shorts and portrait clips (default: enabled)
 
-The extension hides **confirmed YouTube Shorts** from its curated recommendations
-by default. In the popup, open **Tune** and uncheck **Hide YouTube Shorts in
-recommendations** to show them again immediately. This filter applies to both
-the YouTube Home replacement and the popup's recommendation preview. It is
-stored with your local preferences and does not delete candidates, likes, or
-watch history.
+**Hide Shorts and portrait clips (best effort)** is enabled by default under
+the popup's **Tune** settings. It affects both the curated YouTube Home and the
+popup preview. Disabling it immediately makes filtered candidates eligible
+again; no cache reset is needed.
 
-Shorts classification uses actual YouTube `/shorts/<video-id>` links and
-Shorts-specific YouTube card containers. **Video duration is not a Shorts
-classifier**: ordinary short music performances, demos, and educational
-videos remain eligible.
+This feature has three complementary signals:
 
-**API detection:** The importer now makes a small, batched
-`videos.list(part=snippet)` lookup for newly collected uploads. It recognizes
-YouTube's `shortsAspectRatio` thumbnail variant (introduced November 2026
-for Shorts with custom thumbnails), plus explicit `#shorts`, `#ytshorts`, or
-`#youtubeshorts` labels in creator metadata. These are additional positive
-signals, not a universal Shorts field. Unknown videos remain eligible because
-neither a duration below three minutes nor a vertical-looking thumbnail is
-sufficient to prove that an upload is a Short.
+1. **Explicit Shorts evidence:** `/shorts/<id>` links, known Shorts-specific
+   YouTube page containers, creator `#shorts` tags and custom
+   `shortsAspectRatio` thumbnail metadata.
+2. **On-demand player format probing:** For API-imported candidates without
+   Shorts evidence, the extension queries YouTube's public `/oembed` endpoint
+   using `https://www.youtube.com/shorts/<id>`. Some Shorts return portrait
+   player dimensions even when their regular `/watch?v=<id>` URL is valid.
+   A reported portrait ratio of at least 1.4 is treated as likely short-form
+   content and hidden. Landscape results remain eligible.
+3. **Explicit user correction:** Open **Why this video?** and select
+   **Mark as Short** to hide a missed candidate. If a regular portrait-format
+   video is incorrectly hidden, disable the filter and select **Not a Short**
+   for that video. This is separate from negative preference feedback.
 
-**Correcting a missed Short:** Open **Why this video?** under a recommendation
-and click **Mark as Short**. That video disappears immediately with Hide Shorts
-enabled, without being marked disliked or altering your preference profile.
-If misclassified, turn Hide Shorts off under **Tune**, find the video and click
-**Not a Short** to override the automatic classification. These manual labels
-survive subsequent metadata imports and do not delete the cached candidate.
+To avoid excessive requests, format probes are limited to **12 newly displayed
+candidates per batch**, four concurrent requests, with a 6.5-second timeout
+per request. Up to **48 probes per 10-minute browser session window** can be
+initiated; results are cached on individual video records. A failed query is
+inconclusive, not grounds for hiding a video or penalizing its creator.
 
-**Limitations:** Because the Shorts-specific thumbnail field is only available
-for some uploads, API-only Shorts without a label may still appear. This
-setting only filters our curated recommendations; it doesn't remove native
-YouTube Shorts shelves or search results. No duration-only blanket filter is
-applied.
+**Accuracy trade-off:** This is deliberately a *portrait-format heuristic*,
+not an official Shorts classifier. Some regular portrait videos may be
+filtered, and some Shorts may still be missed if oEmbed gives a landscape or
+unavailable response. The user can reverse a false positive. Video duration
+alone is **never** used to classify Shorts, so short ordinary demos and music
+performances aren't hidden merely because they're brief.
+
+The setting doesn't change native YouTube Shorts shelves or search pages.
 
 ## Discovery and repeat filtering
 
