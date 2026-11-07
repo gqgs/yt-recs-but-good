@@ -215,7 +215,9 @@
     // Manual format correction is not a dislike and does not affect the
     // preference profile. It can be reversed after toggling Hide Shorts off.
     const markedShort = video.shortOverride === undefined
-      ? Boolean(video.isShort || video.shortsFormat === 'portrait')
+      ? Boolean(video.isShort ||
+        (video.shortsFormat === 'portrait' &&
+         video.shortsProbeSource === 'oar2-jpeg-v1'))
       : video.shortOverride;
     explain.append(button(markedShort ? 'Not a Short' : 'Mark as Short',
       'ytrbg-short-label', () => {
