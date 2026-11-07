@@ -189,20 +189,38 @@ Classification uses multiple signals:
 
 1. **Explicit Shorts evidence** from YouTube links/card markup, creator
    hashtags, and Shorts-specific thumbnail metadata.
-2. **A single portrait-thumbnail CDN request** for uncertain candidates:
+2. **A portrait-thumbnail CDN request** for uncertain candidates:
    `https://i.ytimg.com/vi/<video-id>/oar2.jpg`. The extension requests
    the first 32 KiB of the JPEG (the CDN may ignore the byte range), parses
    the JPEG header for actual dimensions, and classifies a portrait aspect
-   ratio of at least 1.4 as likely vertical short-form content.
+   ratio of at least 1.4 as likely vertical short-form content. When `oar2`
+   specifically returns HTTP 404, it makes **one conditional fallback request**
+   to `frame0.jpg`. Successful `oar2` checks still require only one request.
 3. **Manual corrections** via **Why this video? → Mark as Short / Not a Short**.
    Explicit user labels override automatic signals without changing likes.
 
-The CDN request is **one GET per newly checked video**, without any
-additional YouTube Data API quota. A successful HTTP response alone is not
-enough: normal videos can also have `oar2.jpg` thumbnails. A missing image
-may return HTTP 404 with a small JPEG placeholder, so the response status
-is checked before parsing dimensions. Network errors, invalid images and
+A CDN format check is normally **one GET per newly checked video**, and only
+an `oar2` 404 triggers a second `frame0` request. These requests consume no
+YouTube Data API quota. A successful HTTP response alone isn't enough:
+normal videos can also have `oar2.jpg` thumbnails. A missing image may
+return HTTP 404 with a small JPEG placeholder, so the response status is
+checked before parsing dimensions. Network errors, invalid images and
 timeouts return *unknown* rather than falsely identifying Shorts.
+
+Five user-reported misses were checked against the real CDN on November 7,
+2026. Four returned `1080×1920` from `oar2`; the fifth
+(`uo5VU-KtUZk`) returned 404 for `oar2` but `268×480` from `frame0`.
+These regression cases motivate the fallback; they are **not** a guarantee
+that every Shorts video exposes one of the variants.
+
+For debugging, expand **Why this video?** beneath a recommendation. The
+**Format check** line reports the selected variant, HTTP status, dimensions
+and any error reason, without exposing account credentials. To independently
+inspect public CDN variants for specific video IDs on your machine:
+
+```bash
+node scripts/diagnose-shorts.mjs EZy9KqeQKrA HlhOrCrn7vk zzITiIxxD8c -prSdejMkaI uo5VU-KtUZk
+```
 
 Results are cached in local video records: verified portrait/landscape
 classifications last **30 days**, inconclusive outcomes **6 hours**.
@@ -210,9 +228,9 @@ Format checks are limited to 12 candidates at a time, four concurrent
 requests and 48 requests per 10-minute browser-session window. Each request
 has a 6.5-second deadline.
 
-The previous oEmbed classifications are automatically rechecked with this
-new method on first use, without clearing preferences, watch history, or
-the candidate cache.
+The previous oEmbed and first-generation `oar2` classifications are
+automatically rechecked with the versioned `oar2-frame0-jpeg-v2` method on
+first use, without clearing preferences, watch history, or the candidate cache.
 
 **Limitations:** Portrait format is not an official Shorts flag. Regular
 portrait videos may be excluded, and some Shorts may remain eligible when
