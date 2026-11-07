@@ -174,8 +174,9 @@ function render() {
   $('onboarding').hidden = paused || ((counts.liked || 0) > 0 && (counts.candidates || 0) > 0);
   const results = $('results');
   results.replaceChildren();
-  const { ready: ranked, pending } = globalThis.YTRBGShortsVisibility.splitCandidates(
-    snapshot.recommendations || [], settings.hideShorts !== false);
+  const { ready: ranked, pending, heldBack } = globalThis.YTRBGShortsVisibility.splitCandidates(
+    snapshot.recommendations || [], settings.hideShorts !== false,
+    Date.now(), settings.mode);
   if (!ranked.length) {
     results.append(element('div', 'empty', paused
       ? 'Collection is paused after deleting all data. Resume it explicitly when ready.'
@@ -187,7 +188,8 @@ function render() {
     return;
   }
   results.append(element('div', 'ranking-note', ranked.length + ' preview recommendations' +
-    (pending.length ? ' · ' + pending.length + ' awaiting format check' : '')));
+    (pending.length ? ' · ' + pending.length + ' awaiting format check' : '') +
+    (heldBack ? ' · ' + heldBack + ' held for chronology' : '')));
   for (const [i, video] of ranked.entries()) results.append(renderVideo(video, i));
 }
 

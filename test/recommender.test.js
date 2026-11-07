@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenize, cosine, preferenceProfile, relativeAgeDays, rankVideos, validVideoTitle, effectivePublishedAt, isConfirmedShort } from '../lib/recommender.js';
+import { tokenize, cosine, preferenceProfile, relativeAgeDays, rankVideos, validVideoTitle, effectivePublishedAt, isConfirmedShort, recentFeedPage, eligibleForRecommendations } from '../lib/recommender.js';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 function video(id, title, extra = {}) {
@@ -175,7 +175,7 @@ test('user can override Shorts classification without deleting candidates or cha
 test('CDN portrait JPEG is filtered even when the only video URL is /watch', () => {
   const items = {
     portrait: video('portrait', 'Vertical music clip', {
-      shortsFormat: 'portrait', shortsProbeSource: 'oar2-frame0-jpeg-v2', url: 'https://www.youtube.com/watch?v=abcdefghijk',
+      shortsFormat: 'portrait', shortsProbeSource: 'three-panel-image-v2', url: 'https://www.youtube.com/watch?v=abcdefghijk',
       sources: ['subscriptions']
     }),
     regular: video('regular', 'Ordinary short documentary', {
@@ -198,7 +198,7 @@ test('old oEmbed portrait results are staged for new classification rather than 
     })
   };
   assert.equal(rankVideos(items, {}, NOW).length, 1);
-  items.legacy.shortsProbeSource = 'oar2-frame0-jpeg-v2';
+  items.legacy.shortsProbeSource = 'three-panel-image-v2';
   assert.equal(rankVideos(items, {}, NOW).length, 0);
 });
 
@@ -206,17 +206,17 @@ test('long-form portrait videos are never filtered by their vertical thumbnails'
   const items = {
     first: video('first', 'Vertical car livestream', {
       durationSeconds: 1431, shortsFormat: 'portrait',
-      shortsProbeSource: 'oar2-frame0-jpeg-v2', isShort: true,
+      shortsProbeSource: 'three-panel-image-v2', isShort: true,
       sources: ['subscriptions']
     }),
     second: video('second', 'Portrait talk recorded for 48 minutes', {
       durationSeconds: 2939, shortsFormat: 'portrait',
-      shortsProbeSource: 'oar2-frame0-jpeg-v2',
+      shortsProbeSource: 'three-panel-image-v2',
       sources: ['subscriptions']
     }),
     clip: video('clip', 'Short vertical clip', {
       durationSeconds: 75, shortsFormat: 'portrait',
-      shortsProbeSource: 'oar2-frame0-jpeg-v2',
+      shortsProbeSource: 'three-panel-image-v2',
       sources: ['subscriptions']
     })
   };
@@ -224,4 +224,89 @@ test('long-form portrait videos are never filtered by their vertical thumbnails'
   assert.deepEqual(visible, ['first', 'second']);
   items.first.shortOverride = true;
   assert.deepEqual(rankVideos(items, {}, NOW).map(v => v.id), ['second']);
+});
+
+test('Recent is strictly chronological irrespective of affinity, diversity and channel quotas', () => {
+  const items = {
+    newer: video('newer', 'Unfamiliar film', {
+      publishedAt: NOW - 30 * 60_000, channel: 'Channel A',
+      sources: ['subscriptions']
+    }),
+    middle: video('middle', 'My favorite artist', {
+      publishedAt: NOW - 2 * 3600_000, channel: 'Channel A',
+      sources: ['subscriptions']
+    }),
+    oldest: video('oldest', 'Another favorite album', {
+      publishedAt: NOW - 16 * 3600_000, channel: 'Channel A',
+      sources: ['subscriptions']
+    }),
+    seed: video('seed', 'My favorite artist another favorite album', {
+      feedback: 'like', candidate: false, feedbackAt: NOW
+    })
+  };
+  const options = { mode: 'recent', diversity: 100, exploration: 0,
+    discoveryOnly: false, limit: 3 };
+  assert.deepEqual(rankVideos(items, options, NOW).map(v => v.id),
+    ['newer', 'middle', 'oldest']);
+});
+
+test('Recent sorts by publish timestamp rather than recency of import/last seen', () => {
+  const items = {
+    a: video('a', 'Newly imported old talk', {
+      publishedAt: NOW - 7 * 86400_000, lastSeenAt: NOW
+    }),
+    b: video('b', 'Recent upload', {
+      publishedAt: NOW - 3600_000, lastSeenAt: NOW - 5 * 86400_000
+    })
+  };
+  assert.deepEqual(rankVideos(items, { mode: 'recent', discoveryOnly: false }, NOW)
+    .map(v => v.id), ['b', 'a']);
+});
+
+test('Recent can traverse 1,094 unseen candidates without a 100-video cap', () => {
+  const records = Object.fromEntries(Array.from({ length: 1094 }, (_, i) => {
+    const id = 'v' + String(i).padStart(10, '0');
+    return [id, video(id, 'Video from subscribed channel ' + i, {
+      sources: ['subscriptions'], publishedAt: NOW - i * 60000
+    })];
+  }));
+  const page1 = recentFeedPage(records, { mode: 'recent', limit: 100 }, NOW);
+  assert.equal(page1.totalEligible, 1094);
+  assert.equal(page1.recommendations.length, 100);
+  assert.equal(page1.hasMore, true);
+  assert.equal(page1.recommendations[0].id, 'v0000000000');
+  assert.equal(page1.recommendations.at(-1).id, 'v0000000099');
+  const page2 = recentFeedPage(records, { mode: 'recent', limit: 200 }, NOW);
+  assert.equal(page2.recommendations.length, 200);
+  assert.equal(page2.recommendations.at(-1).id, 'v0000000199');
+  assert.equal(page2.hasMore, true);
+  const all = recentFeedPage(records, { mode: 'recent', limit: 1200 }, NOW);
+  assert.equal(all.recommendations.length, 1094);
+  assert.equal(all.hasMore, false);
+  assert.equal(all.recommendations.at(-1).id, 'v0000001093');
+  assert.equal(new Set(all.recommendations.map(v => v.id)).size, 1094);
+});
+
+test('Recent eligible count excludes watched and confirmed Shorts but includes unclassified', () => {
+  const records = {
+    normal: video('normal', 'Ordinary video', {
+      sources: ['subscriptions'], publishedAt: NOW
+    }),
+    uncertain: video('uncertain', 'Unclassified upload', {
+      sources: ['subscriptions'], publishedAt: NOW - 10_000
+    }),
+    short: video('short', 'Known Short', {
+      sources: ['subscriptions'], isShort: true
+    }),
+    watched: video('watched', 'Already watched', {
+      sources: ['subscriptions'], watchedAt: NOW
+    }),
+    home: video('home', 'Home only recommendation', {
+      sources: ['home']
+    })
+  };
+  assert.equal(eligibleForRecommendations(records.uncertain), true);
+  const page = recentFeedPage(records, { mode: 'recent' }, NOW);
+  assert.equal(page.totalEligible, 2);
+  assert.deepEqual(page.recommendations.map(v => v.id), ['normal', 'uncertain']);
 });

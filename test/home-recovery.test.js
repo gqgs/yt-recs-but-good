@@ -45,7 +45,7 @@ test('Home schedules a recovery status check if an in-flight refresh stops updat
 
 test('Home splits uncertain candidates before rendering the grid', () => {
   const split = home.indexOf('YTRBGShortsVisibility.splitCandidates(');
-  const render = home.indexOf('render({ ...response.result, recommendations: ready, pendingFormats: pending })');
+  const render = home.indexOf('render({ ...response.result, recommendations: ready, pendingFormats: pending,');
   assert.ok(split > 0 && render > split);
   assert.doesNotMatch(home, /probeFormats\(appended\)/);
   assert.match(home, /pendingFormatCount \? \(checkingPaused/);
@@ -80,4 +80,27 @@ test('duration recovery includes withheld portrait candidates and retries after 
   assert.match(home, /requestVideoDetails\(false\)/);
   assert.match(home, /result\?\.reason === 'upload-sync-running'/);
   assert.match(home, /refreshChange\.newValue\.phase !== 'running'/);
+});
+
+test('Recent incrementally expands beyond the initial 100 and distinguishes inventory from eligibility', () => {
+  assert.match(home, /const RECENT_CHUNK = 100/);
+  assert.match(home, /recentWindow = Math.min\(4000, recentWindow \+ RECENT_CHUNK\)/);
+  assert.match(home, /recentLimit: settings.mode === 'recent' \? recentWindow : undefined/);
+  assert.match(home, /recentTotal \+ ' eligible in Recent'/);
+  assert.match(home, /counts\.unseen \+ ' unseen in pool/);
+  assert.match(home, /'Load next 100 recent candidates'/);
+});
+test('Recent does not auto-load more pages while a format batch is unresolved', () => {
+  assert.match(home, /const canAutoExpand = moreToFetch && pendingFormatCount === 0/);
+  assert.match(home, /recentHasMore && pendingFormatCount === 0/);
+});
+
+test('For you and Explore distinguish a finite recommendation shortlist from the candidate inventory', () => {
+  assert.match(home, /' · End of shortlist'/);
+  assert.doesNotMatch(home, /' · All caught up'/);
+});
+
+test('Recent header distinguishes eligible inventory outside the current window', () => {
+  assert.match(home, /recentTotal - recentWindow/);
+  assert.match(home, /outsideWindow \+ ' outside loaded window/);
 });
