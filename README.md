@@ -290,6 +290,15 @@ specificity, accuracy, false positives/negatives, and per-image feature
 scores. The threshold slider allows validating the precision/recall tradeoff.
 No image uploads or API access are involved.
 
+A small **public-CDN smoke test** on November 7, 2026 checked five previously
+reported Shorts IDs and four ordinary-video controls. The classifier identified
+**5 of 5 known Shorts** and **3 of 3 available normal thumbnails**; one normal
+thumbnail URL returned 404 and was excluded from that comparison. This test
+was useful for increasing the classifier's precision threshold after an
+initial false positive, but it is *far too small* and non-random to be an
+accuracy estimate. Evaluate against the provided labeled `shorts/` and
+`normal/` collection before treating the heuristic as validated.
+
 ## Discovery and repeat filtering
 
 After testing the first curated Home feed, it became clear that ranking videos taken
