@@ -275,6 +275,7 @@ test('API metadata identifies Shorts with explicit evidence but never by duratio
   assert.equal(hasShortsMetadata({ title: 'Short lecture', description: '',
     thumbnails: { medium: { width: 320, height: 180 } } }), false);
   assert.equal(hasShortsMetadata({ title: 'Music video', tags: ['video', '#YouTubeShorts'] }), true);
+  assert.equal(hasShortsMetadata({ title: 'Music video', tags: ['video', 'Shorts'] }), true);
   assert.equal(hasShortsMetadata({ title: 'A short introduction', tags: ['short introduction'] }), false);
 });
 
