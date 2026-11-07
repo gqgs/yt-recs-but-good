@@ -126,6 +126,13 @@ function process(state, msg) {
       }
       return { recorded: Boolean(v) };
     }
+    case 'MARK_SHORT': {
+      const v = state.items[msg.id];
+      if (!v || typeof msg.isShort !== 'boolean') return { recorded: false };
+      v.shortOverride = msg.isShort;
+      event(state, 'manual-short-label', v.id, msg.isShort, now);
+      return { recorded: true };
+    }
     case 'MARK_SEEN': {
       const v = state.items[msg.id];
       if (!v) return { recorded: false };
