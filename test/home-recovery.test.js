@@ -35,3 +35,9 @@ test('Home checks the candidate TTL without interactive login on page visits', (
   assert.match(home, /refresh\.label/);
   assert.match(styles, /\.ytrbg-refresh-status/);
 });
+
+test('Home schedules a recovery status check if an in-flight refresh stops updating', () => {
+  assert.match(home, /staleStatusTimer = setTimeout/);
+  assert.match(home, /refresh\.lastProgressAt \|\| refresh\.lastAttemptAt/);
+  assert.match(home, /clearTimeout\(staleStatusTimer\)/);
+});
