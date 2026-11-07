@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   thumbnailProbeUrl, jpegDimensions, formatFromJpegHeader, probeVideoFormat,
-  probeFormatBatch, SHORTS_PROBE_MAX_BATCH, SHORTS_PROBE_SOURCE
+  probeFormatBatch, probeVideoFormatDetails, probeFormatBatchDetails,
+  SHORTS_PROBE_MAX_BATCH, SHORTS_PROBE_SOURCE
 } from '../lib/shorts-probe.js';
 
 // A deliberately minimal JPEG header with a proper SOI, APP0 and SOF0
@@ -28,7 +29,7 @@ function response(width, height, status = 206) {
 test('uses one oar2 thumbnail request per video, not an oEmbed JSON request', async () => {
   assert.equal(thumbnailProbeUrl('abcdefghijk'),
     'https://i.ytimg.com/vi/abcdefghijk/oar2.jpg');
-  assert.equal(SHORTS_PROBE_SOURCE, 'oar2-jpeg-v1');
+  assert.equal(SHORTS_PROBE_SOURCE, 'oar2-frame0-jpeg-v2');
   assert.throws(() => thumbnailProbeUrl('invalid-id-too-long'), /Invalid/);
   let calls = 0;
   const result = await probeVideoFormat('abcdefghijk', async (url, options) => {
@@ -62,7 +63,7 @@ test('rejects 404 placeholder images even if their bytes are valid JPEG', async 
     ...response(120, 90, 404),
     arrayBuffer: async () => { reads++; return jpeg(120, 90); }
   };
-  assert.equal(await probeVideoFormat('abcdefghijk', async () => placeholder), 'unknown');
+  assert.equal(await probeVideoFormat('abcdefghijk', async (_url) => placeholder), 'unknown');
   assert.equal(reads, 0);
 });
 
@@ -106,4 +107,66 @@ test('batches are deduplicated and bounded to the configured concurrency', async
   assert.equal(calls, SHORTS_PROBE_MAX_BATCH);
   assert.ok(maxInFlight <= 4);
   assert.equal(result.get(ids[0]), 'landscape');
+});
+
+test('a missing oar2 for a Short falls back to one frame0 JPEG request', async () => {
+  const requested = [];
+  const info = await probeVideoFormatDetails('uo5VU-KtUZk', async url => {
+    requested.push(new URL(url).pathname);
+    return url.endsWith('/oar2.jpg') ? {
+      ...response(120, 90, 404),
+      status: 404, ok: false
+    } : response(268, 480, 206);
+  });
+  assert.deepEqual(requested, [
+    '/vi/uo5VU-KtUZk/oar2.jpg', '/vi/uo5VU-KtUZk/frame0.jpg'
+  ]);
+  assert.deepEqual({
+    format: info.format, variant: info.variant,
+    width: info.width, height: info.height
+  }, {
+    format: 'portrait', variant: 'frame0', width: 268, height: 480
+  });
+});
+
+test('a successful oar2 never causes a second thumbnail request', async () => {
+  let count = 0;
+  const result = await probeVideoFormatDetails('EZy9KqeQKrA', async () => {
+    count++;
+    return response(1080, 1920);
+  });
+  assert.equal(result.format, 'portrait');
+  assert.equal(result.variant, 'oar2');
+  assert.equal(count, 1);
+});
+
+test('failed oar2 network request never cascades into extra requests', async () => {
+  let count = 0;
+  const result = await probeVideoFormatDetails('EZy9KqeQKrA', async () => {
+    count++;
+    throw new Error('Network blocked');
+  });
+  assert.equal(result.format, 'unknown');
+  assert.equal(result.reason, 'network-error');
+  assert.equal(count, 1);
+});
+
+test('the fallback cannot turn two missing thumbnails into a false Short', async () => {
+  const r = await probeVideoFormatDetails('uo5VU-KtUZk', async () => ({
+    ...response(120, 90, 404), status: 404, ok: false
+  }));
+  assert.equal(r.format, 'unknown');
+  assert.equal(r.reason, 'both-missing-or-unavailable');
+});
+
+test('batch diagnostics include source variant and JPEG dimensions', async () => {
+  const m = await probeFormatBatchDetails(['EZy9KqeQKrA', 'uo5VU-KtUZk'], {
+    fetcher: async url => url.includes('/uo5VU-KtUZk/oar2.jpg')
+      ? { ...response(120, 90, 404), ok: false, status: 404 }
+      : url.includes('/uo5VU-KtUZk/frame0.jpg')
+        ? response(268, 480) : response(1080, 1920)
+  });
+  assert.equal(m.get('EZy9KqeQKrA').variant, 'oar2');
+  assert.equal(m.get('uo5VU-KtUZk').variant, 'frame0');
+  assert.equal(m.get('uo5VU-KtUZk').format, 'portrait');
 });
