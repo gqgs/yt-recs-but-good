@@ -284,11 +284,16 @@
   function updatePagination() {
     const remaining = Math.max(0, rankedVideos.length - visibleCount);
     const moreToFetch = settings.mode === 'recent' && recentHasMore;
+    // Do not auto-fetch the entire inventory while the current window is
+    // waiting for Shorts classification. The manual button still works.
+    const canAutoExpand = moreToFetch && pendingFormatCount === 0;
     if (pageStatus) {
       pageStatus.textContent = settings.mode === 'recent'
         ? 'Showing ' + visibleCount + ' of ' + rankedVideos.length +
           ' ready recommendations · ' + recentTotal + ' eligible in Recent' +
-          (moreToFetch ? ' · More to load' : remaining ? '' : ' · All eligible checked')
+          (moreToFetch ? ' · More to load' :
+            pendingFormatCount ? ' · Checking ' + pendingFormatCount + ' formats' :
+            remaining ? '' : ' · All eligible loaded')
         : 'Showing ' + visibleCount + ' of ' + rankedVideos.length +
           ' recommendations' + (remaining ? '' : ' · All caught up');
     }
@@ -298,7 +303,7 @@
       loadButton.textContent = remaining > 0 ? 'Load more recommendations'
         : 'Load next 100 recent candidates';
     }
-    if (!remaining && !moreToFetch) {
+    if (!remaining && !canAutoExpand) {
       scrollObserver?.disconnect();
       scrollObserver = null;
     }
@@ -455,7 +460,8 @@
     while (visibleCount < targetCount) appendPage();
     updatePagination();
     const sentinel = root.querySelector('.ytrbg-scroll-sentinel');
-    if (sentinel && (visibleCount < rankedVideos.length || recentHasMore) &&
+    if (sentinel && (visibleCount < rankedVideos.length ||
+        (recentHasMore && pendingFormatCount === 0)) &&
         typeof IntersectionObserver !== 'undefined') {
       scrollObserver = new IntersectionObserver(entries => {
         if (entries.some(entry => entry.isIntersecting)) appendPage();
