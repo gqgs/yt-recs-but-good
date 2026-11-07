@@ -11,6 +11,7 @@ let oauthConfigured = false;
 let authGranted = false;
 const identityCalls = [];
 let apiCalls = 0;
+let failVideoDetails = false;
 const oldChrome = globalThis.chrome;
 const oldFetch = globalThis.fetch;
 globalThis.chrome = {
@@ -121,7 +122,22 @@ globalThis.fetch = async (url, options) => {
         videoOwnerChannelId: CHANNEL, publishedAt: '2026-11-06T00:00:00Z' },
       contentDetails: { videoId: 'newvid12345' }
     }] })
-  };
+  };  if (parsed.pathname.endsWith('/videos')) {
+    if (failVideoDetails) return {
+      ok: false, status: 403, json: async () => ({
+        error: { message: 'quotaExceeded', errors: [{ reason: 'quotaExceeded' }] }
+      })
+    };
+    const ids = parsed.searchParams.get('id').split(',');
+    return { ok: true, json: async () => ({
+      items: ids.map(id => ({
+        id, contentDetails: { duration: id === 'newvid12345' ? 'PT48M59S' : 'PT23M51S' },
+        statistics: { viewCount: '56000' },
+        snippet: { title: 'A systems talk' }
+      }))
+    }) };
+  }
+
   throw new Error('Unexpected endpoint: ' + parsed.pathname);
 };
 await import('../background.js');
@@ -327,6 +343,62 @@ test('manual refresh authorizes explicitly, adds new videos and applies 1h TTL',
   assert.equal(again.result.started, false);
   assert.equal(again.result.reason, 'fresh-or-throttled');
   assert.equal(apiCalls, callsBefore);
+});
+test('refreshing uploads carries duration and counts through worker storage and Home', async () => {
+  const item = (await message({ type: 'GET_STATE' })).state.items['newvid12345'];
+  assert.equal(item.durationSeconds, 2939);
+  const home = await message({ type: 'GET_RECOMMENDATIONS' });
+  const candidate = home.result.recommendations.find(v => v.id === 'newvid12345');
+  assert.equal(candidate.durationSeconds, 2939);
+  assert.match(candidate.metadataLine, /56K views/);
+  assert.equal(home.result.refresh.metadata.failures, 0);
+  assert.equal(home.result.refresh.metadata.durations, 1);
+});
+test('Home can enrich cached videos without revisiting subscribed channels', async () => {
+  const id = 'duration123';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'A vertical but long performance', channel: 'Music' }
+  ] });
+  let current = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
+  assert.equal(current.recommendations.find(v => v.id === id).durationSeconds, null);
+  const beforeCalls = apiCalls;
+  const result = await message({ type: 'REFRESH_VIDEO_DETAILS', ids: [id] });
+  assert.equal(result.ok, true);
+  assert.equal(result.result.durationUpdates, 1);
+  assert.equal(result.result.viewUpdates, 1);
+  assert.equal(apiCalls, beforeCalls + 1);
+  current = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
+  assert.equal(current.recommendations.find(v => v.id === id).durationSeconds, 1431);
+  assert.match(current.recommendations.find(v => v.id === id).metadataLine, /56K views/);
+  assert.equal(current.detailStatus.phase, 'ready');
+  const repeat = await message({ type: 'REFRESH_VIDEO_DETAILS', ids: [id] });
+  assert.equal(repeat.result.reason, 'up-to-date');
+  assert.equal(apiCalls, beforeCalls + 1);
+  await message({ type: 'MARK_SEEN', id });
+});
+test('supplemental metadata lookup failure is visible and preserves preferences', async () => {
+  const id = 'failure1234';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'A normal science lecture', channel: 'Science' }
+  ] });
+  failVideoDetails = true;
+  const request = await message({ type: 'REFRESH_VIDEO_DETAILS', ids: [id] });
+  assert.equal(request.ok, true);
+  assert.equal(request.result.started, false);
+  assert.equal(request.result.reason, 'api-error');
+  const current = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(current.result.detailStatus.phase, 'error');
+  assert.match(current.result.detailStatus.message, /quotaExceeded/);
+  const stored = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(stored.candidate, true);
+  assert.equal(stored.durationSeconds, null);
+  assert.ok(stored.detailsAttemptedAt);
+  const automatic = await message({ type: 'REFRESH_VIDEO_DETAILS', ids: [id] });
+  assert.equal(automatic.result.reason, 'up-to-date');
+  failVideoDetails = false;
+  const retry = await message({ type: 'REFRESH_VIDEO_DETAILS', ids: [id], force: true });
+  assert.equal(retry.result.durationUpdates, 1);
+  await message({ type: 'MARK_SEEN', id });
 });
 test('full reset clears last refresh and prevents automatic collection until resumed', async () => {
   const cleared = await message({ type: 'RESET' });
