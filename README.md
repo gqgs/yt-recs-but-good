@@ -166,43 +166,59 @@ Authorization uses `chrome.identity.launchWebAuthFlow()` with a registered HTTPS
 
 Google authorization, consent configuration, API quota, or browser behavior may still prevent syncing; browsing-based recommendations remain available. For broader distribution, review the YouTube API Services policies, including data-retention and refresh obligations.
 
+## Shorts classification before display
+
+The curated Home **stages uncertain candidates before rendering** whenever
+Hide Shorts is enabled. Previously, portrait clips briefly appeared before
+a slower asynchronous format check removed them. Verified recommendations
+appear immediately, while unverified candidates remain withheld until
+classification finishes or reports an inconclusive result.
+
+The popup follows the same eligibility policy. If a probe fails or the
+request budget is temporarily exhausted, the UI reports that verification
+is pending instead of showing potential Shorts prematurely. A one-shot
+retry follows the cooldown; no data deletion is necessary.
+
 ## Hide Shorts and portrait clips (default: enabled)
 
-**Hide Shorts and portrait clips (best effort)** is enabled by default under
-the popup's **Tune** settings. It affects both the curated YouTube Home and the
-popup preview. Disabling it immediately makes filtered candidates eligible
-again; no cache reset is needed.
+The extension's **Hide Shorts and portrait clips (best effort)** option in
+**Tune** is enabled by default. Turning it off immediately restores all
+otherwise eligible candidates.
 
-This feature has three complementary signals:
+Classification uses multiple signals:
 
-1. **Explicit Shorts evidence:** `/shorts/<id>` links, known Shorts-specific
-   YouTube page containers, creator `#shorts` tags and custom
-   `shortsAspectRatio` thumbnail metadata.
-2. **On-demand player format probing:** For API-imported candidates without
-   Shorts evidence, the extension queries YouTube's public `/oembed` endpoint
-   using `https://www.youtube.com/shorts/<id>`. Some Shorts return portrait
-   player dimensions even when their regular `/watch?v=<id>` URL is valid.
-   A reported portrait ratio of at least 1.4 is treated as likely short-form
-   content and hidden. Landscape results remain eligible.
-3. **Explicit user correction:** Open **Why this video?** and select
-   **Mark as Short** to hide a missed candidate. If a regular portrait-format
-   video is incorrectly hidden, disable the filter and select **Not a Short**
-   for that video. This is separate from negative preference feedback.
+1. **Explicit Shorts evidence** from YouTube links/card markup, creator
+   hashtags, and Shorts-specific thumbnail metadata.
+2. **A single portrait-thumbnail CDN request** for uncertain candidates:
+   `https://i.ytimg.com/vi/<video-id>/oar2.jpg`. The extension requests
+   the first 32 KiB of the JPEG (the CDN may ignore the byte range), parses
+   the JPEG header for actual dimensions, and classifies a portrait aspect
+   ratio of at least 1.4 as likely vertical short-form content.
+3. **Manual corrections** via **Why this video? → Mark as Short / Not a Short**.
+   Explicit user labels override automatic signals without changing likes.
 
-To avoid excessive requests, format probes are limited to **12 newly displayed
-candidates per batch**, four concurrent requests, with a 6.5-second timeout
-per request. Up to **48 probes per 10-minute browser session window** can be
-initiated; results are cached on individual video records. A failed query is
-inconclusive, not grounds for hiding a video or penalizing its creator.
+The CDN request is **one GET per newly checked video**, without any
+additional YouTube Data API quota. A successful HTTP response alone is not
+enough: normal videos can also have `oar2.jpg` thumbnails. A missing image
+may return HTTP 404 with a small JPEG placeholder, so the response status
+is checked before parsing dimensions. Network errors, invalid images and
+timeouts return *unknown* rather than falsely identifying Shorts.
 
-**Accuracy trade-off:** This is deliberately a *portrait-format heuristic*,
-not an official Shorts classifier. Some regular portrait videos may be
-filtered, and some Shorts may still be missed if oEmbed gives a landscape or
-unavailable response. The user can reverse a false positive. Video duration
-alone is **never** used to classify Shorts, so short ordinary demos and music
-performances aren't hidden merely because they're brief.
+Results are cached in local video records: verified portrait/landscape
+classifications last **30 days**, inconclusive outcomes **6 hours**.
+Format checks are limited to 12 candidates at a time, four concurrent
+requests and 48 requests per 10-minute browser-session window. Each request
+has a 6.5-second deadline.
 
-The setting doesn't change native YouTube Shorts shelves or search pages.
+The previous oEmbed classifications are automatically rechecked with this
+new method on first use, without clearing preferences, watch history, or
+the candidate cache.
+
+**Limitations:** Portrait format is not an official Shorts flag. Regular
+portrait videos may be excluded, and some Shorts may remain eligible when
+a CDN variant is absent or has an unexpected shape. Video duration alone
+is never used. The option does not hide native Shorts shelves outside the
+curated recommender.
 
 ## Discovery and repeat filtering
 

@@ -69,13 +69,19 @@ globalThis.chrome = {
 // Simulate the official API with no external requests or credentials.
 globalThis.fetch = async (url, options) => {
   const parsed = new URL(url);
-  if (parsed.hostname === 'www.youtube.com' && parsed.pathname === '/oembed') {
-    const requested = new URL(parsed.searchParams.get('url'));
-    const id = requested.pathname.split('/').at(-1);
-    return { ok: true, json: async () => ({
-      width: id === 'portrait123' ? 113 : 200,
-      height: id === 'portrait123' ? 200 : 113
-    }) };
+  if (parsed.hostname === 'i.ytimg.com' && parsed.pathname.startsWith('/vi/') && parsed.pathname.endsWith('/oar2.jpg')) {
+    const id = parsed.pathname.split('/')[2];
+    const portrait = id === 'portrait123';
+    const width = portrait ? 1080 : 1920;
+    const height = portrait ? 1920 : 1080;
+    const bytes = Uint8Array.from([
+      0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0,
+      0xff, 0xc0, 0, 17, 8, height >> 8, height & 255,
+      width >> 8, width & 255, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0
+    ]);
+    assert.equal(options.headers.Range, 'bytes=0-32767');
+    return { ok: true, status: 206, headers: { get: () => 'image/jpeg' },
+      arrayBuffer: async () => bytes.buffer };
   }
   if (parsed.hostname !== 'www.googleapis.com' ||
       options?.headers?.Authorization !== 'Bearer testing-token') {
@@ -380,7 +386,7 @@ test('manual Shorts labeling filters candidates without polluting preference fee
   await message({ type: 'MARK_SEEN', id });
 });
 
-test('on-demand oEmbed format probe filters API-only /watch URL videos', async () => {
+test('on-demand CDN thumbnail probe filters API-only /watch URL videos', async () => {
   const id = 'portrait123';
   await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [{
     id, title: 'Format probe candidate', channel: 'Clips'
@@ -392,6 +398,7 @@ test('on-demand oEmbed format probe filters API-only /watch URL videos', async (
   assert.equal(probed.result.checked, 1);
   const state = (await message({ type: 'GET_STATE' })).state.items[id];
   assert.equal(state.shortsFormat, 'portrait');
+  assert.equal(state.shortsProbeSource, 'oar2-jpeg-v1');
   assert.ok(state.shortsProbedAt);
   const after = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
   assert.equal(after.recommendations.some(v => v.id === id), false);
