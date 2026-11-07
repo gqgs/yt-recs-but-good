@@ -68,19 +68,46 @@ expired or needs interaction, the extension shows **Authorize YouTube API** rath
 than opening a login dialog. Manual refresh is an explicit user action and may
 request authorization.
 
-An automatic check fetches the subscriptions list and up to **five latest
-uploads from each of the first 200 subscribed channels**. This bounded pass
-skips the extra view-statistics lookups to conserve API quota; view counts can
-still be learned from normal browsing or a full manual API import. Only newly
-encountered video IDs are counted as new discoveries. Automatic checks have a
+An automatic check fetches the subscriptions list and checks a **rotating batch
+of up to 40 channels** from the first 200 subscriptions, collecting up to five
+recent uploads per channel. Successful checks advance to the next batch, so
+with 200 subscriptions and the default one-hour TTL the whole set is covered
+over approximately five successful visits/checks, not in one fragile
+long-running request. **Refresh uploads** explicitly triggers the next batch,
+bypassing the TTL. This bounded pass skips extra view-statistics lookups to
+conserve API quota; view counts can still come from normal browsing or a full
+manual API import. Only previously unseen video IDs count as new discoveries.
+
+The Home status reports how many channels have been processed during a scan.
+Each YouTube API request has a **12-second deadline**; an unresponsive request
+fails visibly instead of leaving the UI permanently on "Checking…". If Brave
+terminates the Manifest V3 service worker mid-refresh, the stored status is
+reported as interrupted after **150 seconds without progress**, and the
+manual Refresh button becomes available again. Automatic checks retain a
 **15-minute retry backoff** after a failed attempt and share a single-flight
-guard with full API sync, preventing redundant simultaneous requests.
+guard with full API sync, preventing redundant concurrent requests. Existing
+candidates, likes, and watch history are preserved on failure.
 
 A full data reset pauses both collection and automatic refresh, clears the
 short-lived session token, and requires manual reauthorization to use API sync
 again. **Resume collection** re-enables collection; clearing only candidates
 invalidates the previous refresh timestamp. No OAuth secrets or access tokens
 are written to persistent local storage.
+
+## Troubleshooting an upload refresh stuck on "Checking…"
+
+If **Refresh uploads** stays on **Checking new subscribed uploads…**, the scan
+may be slow, an API request may be unresponsive, or Brave may have stopped its
+service worker. The extension now displays progress (e.g. `Checking subscribed
+channels: 16/200`), bounds work to 40 channels, and times out API requests.
+If status has received no progress for 150 seconds, the Home page reports
+**Previous refresh interrupted** and enables **Refresh uploads** to retry.
+
+There is no reason to delete your local data or reconfigure Google OAuth for
+this issue. Reload the unpacked extension in `brave://extensions`, refresh
+YouTube, and click **Refresh uploads** once. If it fails, note the displayed
+API error (without any credentials) and check the extension service worker's
+console in `brave://extensions`.
 
 ## Troubleshooting a stalled Google authorization
 
