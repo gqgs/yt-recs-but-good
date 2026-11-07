@@ -16,8 +16,8 @@ function candidate(id, extra = {}) {
 
 test('unclassified candidates are withheld until the format result arrives', () => {
   const videos = [candidate('unverified'),
-    candidate('landscape', { shortsFormat: 'landscape', shortsProbedAt: NOW - 1000 }),
-    candidate('unknown', { shortsFormat: 'unknown', shortsProbedAt: NOW - 1000 })];
+    candidate('landscape', { shortsFormat: 'landscape', shortsProbedAt: NOW - 1000, shortsProbeSource: 'oar2-jpeg-v1' }),
+    candidate('unknown', { shortsFormat: 'unknown', shortsProbedAt: NOW - 1000, shortsProbeSource: 'oar2-jpeg-v1' })];
   const { ready, pending } = splitCandidates(videos, true, NOW);
   assert.deepEqual(ready.map(v => v.id).join(','), 'landscape,unknown');
   assert.deepEqual(pending.map(v => v.id).join(','), 'unverified');
@@ -29,6 +29,7 @@ test('further format classification never requires a destructive cache reset', (
   assert.equal(needsFormatCheck(item, NOW), true);
   item.shortsFormat = 'landscape';
   item.shortsProbedAt = NOW;
+  item.shortsProbeSource = 'oar2-jpeg-v1';
   assert.equal(needsFormatCheck(item, NOW), false);
 });
 
@@ -47,22 +48,35 @@ test('disabled filter and user overrides never defer videos', () => {
 
 test('stale unknowns and stale landscapes are withheld for revalidation', () => {
   assert.equal(needsFormatCheck(candidate('unknown', {
-    shortsFormat: 'unknown', shortsProbedAt: NOW - 7 * 3600_000
+    shortsFormat: 'unknown', shortsProbedAt: NOW - 7 * 3600_000, shortsProbeSource: 'oar2-jpeg-v1'
   }), NOW), true);
   assert.equal(needsFormatCheck(candidate('fresh', {
-    shortsFormat: 'unknown', shortsProbedAt: NOW - 5 * 3600_000
+    shortsFormat: 'unknown', shortsProbedAt: NOW - 5 * 3600_000, shortsProbeSource: 'oar2-jpeg-v1'
   }), NOW), false);
   assert.equal(needsFormatCheck(candidate('old', {
-    shortsFormat: 'landscape', shortsProbedAt: NOW - 31 * 86400_000
+    shortsFormat: 'landscape', shortsProbedAt: NOW - 31 * 86400_000, shortsProbeSource: 'oar2-jpeg-v1'
   }), NOW), true);
   assert.equal(needsFormatCheck(candidate('current', {
-    shortsFormat: 'landscape', shortsProbedAt: NOW - 29 * 86400_000
+    shortsFormat: 'landscape', shortsProbedAt: NOW - 29 * 86400_000, shortsProbeSource: 'oar2-jpeg-v1'
   }), NOW), false);
 });
 
 test('portrait results are already excluded by ranking and do not need reprobes', () => {
   const portrait = candidate('portrait', {
-    shortsFormat: 'portrait', shortsProbedAt: NOW
+    shortsFormat: 'portrait', shortsProbedAt: NOW, shortsProbeSource: 'oar2-jpeg-v1'
   });
   assert.equal(needsFormatCheck(portrait, NOW), false);
+});
+
+test('old oEmbed cached formats require the new CDN check, without deleting them', () => {
+  const oldLandscape = candidate('old', {
+    shortsFormat: 'landscape', shortsProbedAt: NOW - 1000
+  });
+  const oldPortrait = candidate('portrait', {
+    shortsFormat: 'portrait', shortsProbedAt: NOW - 1000,
+    shortsProbeSource: 'oembed-v1'
+  });
+  assert.equal(needsFormatCheck(oldLandscape, NOW), true);
+  assert.equal(needsFormatCheck(oldPortrait, NOW), true);
+  assert.equal(splitCandidates([oldLandscape, oldPortrait], true, NOW).pending.length, 2);
 });
