@@ -295,7 +295,7 @@
             pendingFormatCount ? ' · Checking ' + pendingFormatCount + ' formats' :
             remaining ? '' : ' · All eligible loaded')
         : 'Showing ' + visibleCount + ' of ' + rankedVideos.length +
-          ' recommendations' + (remaining ? '' : ' · All caught up');
+          ' shortlisted recommendations' + (remaining ? '' : ' · End of shortlist');
     }
     if (loadButton) {
       loadButton.hidden = remaining === 0 && !moreToFetch;
