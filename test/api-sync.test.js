@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   requestYouTube, fetchLikedVideos, fetchSubscriptions, fetchUploads,
-  likedVideo, subscription, uploadedVideo, YouTubeApiError, isUnavailableUploadPlaylist
+  likedVideo, subscription, uploadedVideo, hasShortsMetadata,
+  YouTubeApiError, isUnavailableUploadPlaylist
 } from '../lib/api-sync.js';
 
 const CID = 'UC' + 'a'.repeat(22);
@@ -50,7 +51,7 @@ test('retrieves subscriptions and recent uploads in bounded batches', async () =
       snippet: { title: 'An actual upload' }, contentDetails: { videoId: VID }
     }] }) };
     if (u.pathname.endsWith('/videos')) {
-      assert.equal(u.searchParams.get('part'), 'statistics');
+      assert.equal(u.searchParams.get('part'), 'snippet,statistics');
       assert.equal(u.searchParams.get('id'), VID);
       return { ok: true, json: async () => ({ items: [{
         id: VID, statistics: { viewCount: '243210' }
@@ -95,7 +96,7 @@ test('missing statistics do not prevent subscribed upload import', async () => {
   assert.equal(videos[0].viewCount, undefined);
 });
 
-test('lightweight automatic upload checks do not request view statistics', async () => {
+test('lightweight automatic upload checks request Shorts metadata but not view statistics', async () => {
   const requests = [];
   const fetcher = async url => {
     const parsed = new URL(url);
@@ -109,6 +110,15 @@ test('lightweight automatic upload checks do not request view statistics', async
         items: [{ snippet: { title: 'Recent talk' }, contentDetails: { videoId: VID } }]
       }) };
     }
+    if (parsed.pathname.endsWith('/videos')) {
+      assert.equal(parsed.searchParams.get('part'), 'snippet');
+      assert.equal(parsed.searchParams.get('id'), VID);
+      return { ok: true, json: async () => ({ items: [{
+        id: VID, snippet: { title: 'Recent talk',
+          thumbnails: { shortsAspectRatio: { url: 'https://example.com/portrait.jpg' } }
+        }
+      }] }) };
+    }
     throw new Error('Unexpected endpoint: ' + parsed.pathname);
   };
   const videos = [];
@@ -118,7 +128,8 @@ test('lightweight automatic upload checks do not request view statistics', async
   });
   assert.equal(result.videos, 1);
   assert.equal(videos[0].id, VID);
-  assert.deepEqual(requests.map(p => p.split('/').at(-1)), ['channels', 'playlistItems']);
+  assert.deepEqual(requests.map(p => p.split('/').at(-1)), ['channels', 'playlistItems', 'videos']);
+  assert.equal(videos[0].isShort, true);
 });
 
 test('skips one unavailable uploads playlist but imports the other subscriptions', async () => {
@@ -252,4 +263,25 @@ test('automatic refresh can cap subscription pages without changing full imports
   const limited = await fetchSubscriptions('token', { fetcher, maxPages: 4 });
   assert.equal(limited.length, 4);
   assert.equal(calls, 4);
+});
+
+test('API metadata identifies Shorts with explicit evidence but never by duration alone', () => {
+  assert.equal(hasShortsMetadata({
+    thumbnails: { shortsAspectRatio: { url: 'https://i.ytimg.com/vi/id/shorts.jpg' } }
+  }), true);
+  assert.equal(hasShortsMetadata({
+    title: 'Normal description', description: 'Made for #Shorts community'
+  }), true);
+  assert.equal(hasShortsMetadata({ title: 'Short lecture', description: '',
+    thumbnails: { medium: { width: 320, height: 180 } } }), false);
+  assert.equal(hasShortsMetadata({ title: 'Music video', tags: ['video', '#YouTubeShorts'] }), true);
+  assert.equal(hasShortsMetadata({ title: 'A short introduction', tags: ['short introduction'] }), false);
+});
+
+test('playlist item metadata marks explicit Shorts without extra video details', () => {
+  const item = uploadedVideo({
+    snippet: { title: 'Tiny clip #shorts' },
+    contentDetails: { videoId: VID }
+  }, CID);
+  assert.equal(item.isShort, true);
 });
