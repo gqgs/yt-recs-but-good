@@ -221,3 +221,16 @@ test('API error exposes structured reason and sanitizes inline code tags', async
       !err.message.includes('<code>')
   );
 });
+
+test('an unresponsive YouTube API request times out and aborts rather than hanging refresh', async () => {
+  let signal;
+  await assert.rejects(
+    requestYouTube('playlistItems', { playlistId: 'UUnonresponsive' }, 'token',
+      async (_url, options) => {
+        signal = options.signal;
+        return new Promise(() => {});
+      }, 12),
+    /playlistItems request timed out/
+  );
+  assert.equal(signal.aborted, true);
+});
