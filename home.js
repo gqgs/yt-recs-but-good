@@ -331,7 +331,7 @@
     detailsButton.disabled = paused || detailStatus.phase === 'running';
     detailsButton.title = 'Refresh durations and view counts for already-collected videos';
     const detailLabel = detailStatus.phase === 'error'
-      ? 'Video details failed'
+      ? 'Details failed · ' + String(detailStatus.message || 'API error').slice(0, 65)
       : detailStatus.phase === 'running'
       ? 'Fetching video details…'
       : detailStatus.phase === 'ready'
