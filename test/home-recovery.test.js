@@ -58,3 +58,11 @@ test('a suspended Shorts probe shows an honest waiting state instead of permanen
   assert.match(home, /formatProbeRetryTimer = setTimeout/);
   assert.match(home, /deferFormatProbe\(10 \* 60_000\)/);
 });
+
+test('duration overlays render on Home and popup without altering titles', () => {
+  const popup = readFileSync(new URL('../popup.js', import.meta.url), 'utf8');
+  assert.match(home, /YTRBGShortsVisibility.formatDuration\(video.durationSeconds\)/);
+  assert.match(home, /'ytrbg-duration'/);
+  assert.match(popup, /'duration-badge'/);
+  assert.match(popup, /YTRBGShortsVisibility.formatDuration\(video.durationSeconds\)/);
+});
