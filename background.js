@@ -68,6 +68,8 @@ function updateItem(state, data, now, source = '') {
     sources,
     visitedAt: old.visitedAt || state.visitedIds?.[data.id] || null,
     hasResume: Boolean(data.hasResume || old.hasResume),
+    // Preserve confirmed Shorts identity across later API imports.
+    isShort: Boolean(old.isShort || data.isShort === true),
     thumbnail: 'https://i.ytimg.com/vi/' + data.id + '/mqdefault.jpg',
     url: 'https://www.youtube.com/watch?v=' + data.id,
     publishedText: clean(data.publishedText, 80) || old.publishedText || '',
@@ -455,6 +457,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         halfLifeDays: settings.halfLifeDays || 90,
         showSeen: settings.showSeen === true,
         discoveryOnly: settings.discoveryOnly !== false,
+        hideShorts: settings.hideShorts !== false,
         limit: 12
       }).map(video => ({
         ...video, metadataLine: formatMetadataLine(video)
@@ -482,6 +485,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         halfLifeDays: [30, 90, 365, 3650].includes(stored.halfLifeDays) ? stored.halfLifeDays : 90,
         showSeen: stored.showSeen === true,
         discoveryOnly: stored.discoveryOnly !== false,
+        hideShorts: stored.hideShorts !== false,
         limit: 100
       };
       const items = Object.values(state.items);
