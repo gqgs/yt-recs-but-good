@@ -115,6 +115,7 @@ test('captures classic metadata and leaves missing values absent', () => {
 test('extracts metadata from current camelCase YouTube view-model elements', () => {
   const card = fakeCard({ title: 'A new mathematics lecture', metadata: [] });
   card.querySelectorAll = selectors => {
+    if (selectors === 'a[href*="/shorts/"]') return [];
     assert.match(selectors, /ytContentMetadataViewModelMetadataText/);
     assert.match(selectors, /yt-content-metadata-view-model-wiz__metadata-text/);
     return [
@@ -129,6 +130,7 @@ test('extracts metadata from current camelCase YouTube view-model elements', () 
 test('reads wiz metadata rows with combined views and upload age', () => {
   const card = fakeCard({ title: 'The art of finding things', metadata: [] });
   card.querySelectorAll = selector => {
+    if (selector === 'a[href*="/shorts/"]') return [];
     assert.match(selector, /yt-content-metadata-view-model-wiz__metadata-row/);
     return [el('15K views · 2 days ago')];
   };
