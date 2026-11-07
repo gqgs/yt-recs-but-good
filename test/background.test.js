@@ -14,6 +14,35 @@ let apiCalls = 0;
 let failVideoDetails = false;
 const oldChrome = globalThis.chrome;
 const oldFetch = globalThis.fetch;
+const oldBitmap = globalThis.createImageBitmap;
+const oldCanvas = globalThis.OffscreenCanvas;
+const SIZE = { width: 128, height: 72 };
+function makeThumbnailPixels(portrait) {
+  const { width: w, height: h } = SIZE;
+  const data = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const center = x >= w * .34 && x < w * .66;
+    const seed = (x * 79 + y * 101 + x * y * 19) % 256;
+    const side = (Math.floor(x / 8) * 39 + Math.floor(y / 8) * 17) % 120;
+    const value = portrait && !center ? Math.round(side * .75) :
+      (seed * .7 + 60) | 0;
+    const pos = (y * w + x) * 4;
+    data[pos] = data[pos + 1] = data[pos + 2] = value;
+    data[pos + 3] = 255;
+  }
+  return { ...SIZE, data };
+}
+globalThis.createImageBitmap = async blob => ({ id: blob.id, close() {} });
+globalThis.OffscreenCanvas = class {
+  constructor(width, height) { this.width = width; this.height = height; }
+  getContext() {
+    return {
+      drawImage: image => { this.imageId = image.id; },
+      getImageData: () => makeThumbnailPixels(
+        ['portrait123', 'uo5VU-KtUZk', 'hiddenlong1'].includes(this.imageId))
+    };
+  }
+};
 globalThis.chrome = {
   storage: { local: {
     async get(keys) {
@@ -71,35 +100,11 @@ globalThis.chrome = {
 globalThis.fetch = async (url, options) => {
   const parsed = new URL(url);
   if (parsed.hostname === 'i.ytimg.com' &&
-      parsed.pathname === '/vi/uo5VU-KtUZk/oar2.jpg') {
-    return { ok: false, status: 404,
-      headers: { get: () => 'image/jpeg' },
-      arrayBuffer: async () => Uint8Array.from([0xff,0xd8,0xff,0xd9]).buffer };
-  }
-  if (parsed.hostname === 'i.ytimg.com' &&
-      parsed.pathname === '/vi/uo5VU-KtUZk/frame0.jpg') {
-    const bytes = Uint8Array.from([
-      0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0,
-      0xff, 0xc0, 0, 17, 8, 480 >> 8, 480 & 255,
-      268 >> 8, 268 & 255, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0
-    ]);
-    return { ok: true, status: 206,
-      headers: { get: () => 'image/jpeg' },
-      arrayBuffer: async () => bytes.buffer };
-  }
-  if (parsed.hostname === 'i.ytimg.com' && parsed.pathname.startsWith('/vi/') && parsed.pathname.endsWith('/oar2.jpg')) {
+      parsed.pathname.endsWith('/mqdefault.jpg')) {
     const id = parsed.pathname.split('/')[2];
-    const portrait = id === 'portrait123' || id === 'hiddenlong1';
-    const width = portrait ? 1080 : 1920;
-    const height = portrait ? 1920 : 1080;
-    const bytes = Uint8Array.from([
-      0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0,
-      0xff, 0xc0, 0, 17, 8, height >> 8, height & 255,
-      width >> 8, width & 255, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0
-    ]);
-    assert.equal(options.headers.Range, 'bytes=0-32767');
-    return { ok: true, status: 206, headers: { get: () => 'image/jpeg' },
-      arrayBuffer: async () => bytes.buffer };
+    return { ok: true, status: 200,
+      headers: { get: () => 'image/jpeg' },
+      blob: async () => ({ size: 16000, id }) };
   }
   if (parsed.hostname !== 'www.googleapis.com' ||
       options?.headers?.Authorization !== 'Bearer testing-token') {
@@ -415,6 +420,8 @@ test('full reset clears last refresh and prevents automatic collection until res
 test.after(() => {
   globalThis.chrome = oldChrome;
   globalThis.fetch = oldFetch;
+  globalThis.createImageBitmap = oldBitmap;
+  globalThis.OffscreenCanvas = oldCanvas;
 });
 
 test('records view metadata discovered from page cards and prefers newer API statistics', async () => {
@@ -489,10 +496,10 @@ test('on-demand CDN thumbnail probe filters API-only /watch URL videos', async (
   assert.equal(probed.result.checked, 1);
   const state = (await message({ type: 'GET_STATE' })).state.items[id];
   assert.equal(state.shortsFormat, 'portrait');
-  assert.equal(state.shortsProbeSource, 'oar2-frame0-jpeg-v2');
-  assert.equal(state.shortsProbeDiagnostic.variant, 'oar2');
-  assert.equal(state.shortsProbeDiagnostic.width, 1080);
-  assert.equal(state.shortsProbeDiagnostic.height, 1920);
+  assert.equal(state.shortsProbeSource, 'three-panel-image-v1');
+  assert.equal(state.shortsProbeDiagnostic.variant, 'mqdefault');
+  assert.equal(state.shortsProbeDiagnostic.reason, 'three-panel-match');
+  assert.ok(state.shortsProbeDiagnostic.score >= .55);
   assert.ok(state.shortsProbedAt);
   const after = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
   assert.equal(after.recommendations.some(v => v.id === id), false);
@@ -503,7 +510,7 @@ test('on-demand CDN thumbnail probe filters API-only /watch URL videos', async (
   assert.equal(restored.recommendations.some(v => v.id === id), true);
 });
 
-test('fallback thumbnail 404 then frame0 portrait is cached and filtered', async () => {
+test('three-panel thumbnail identifies known portrait candidate without CDN variants', async () => {
   const id = 'uo5VU-KtUZk';
   await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
     { id, title: 'Unlabeled portrait clip', channel: 'Example' }
@@ -512,9 +519,9 @@ test('fallback thumbnail 404 then frame0 portrait is cached and filtered', async
   assert.equal(result.ok, true);
   assert.equal(result.result.portrait, 1);
   const state = (await message({ type: 'GET_STATE' })).state.items[id];
-  assert.equal(state.shortsProbeSource, 'oar2-frame0-jpeg-v2');
-  assert.equal(state.shortsProbeDiagnostic.variant, 'frame0');
-  assert.equal(state.shortsProbeDiagnostic.width, 268);
+  assert.equal(state.shortsProbeSource, 'three-panel-image-v1');
+  assert.equal(state.shortsProbeDiagnostic.variant, 'mqdefault');
+  assert.equal(state.shortsProbeDiagnostic.reason, 'three-panel-match');
   assert.equal(state.shortsFormat, 'portrait');
   const after = await message({ type: 'GET_RECOMMENDATIONS' });
   assert.equal(after.result.recommendations.some(v => v.id === id), false);
