@@ -122,6 +122,8 @@ test('Home and popup share hide-Shorts preference and preserve cached Shorts', a
   ] });
   const state = (await message({ type: 'GET_STATE' })).state;
   assert.equal(state.items[id].isShort, true);
+  await message({ type: 'MARK_SEEN', id });
+  await message({ type: 'MARK_SEEN', id: 'regular1234' });
   await chrome.storage.local.set({ 'yt-recs-settings-v1': {} });
 });
 
