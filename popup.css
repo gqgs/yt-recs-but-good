@@ -117,3 +117,11 @@ body.confirming{overflow:hidden}
 #copy-oauth-redirect{justify-self:start;font-size:11px}
 
 .options .shorts-note{font-size:10px;line-height:1.45;color:#9999ab;margin:0 0 3px 24px}
+
+.feed-item .thumb{position:relative}
+.feed-item .duration-badge{
+  position:absolute;bottom:5px;right:5px;padding:2px 4px;
+  border-radius:4px;background:rgba(0,0,0,.85);color:white;
+  font-size:10px;font-weight:600;font-variant-numeric:tabular-nums;
+  pointer-events:none;
+}

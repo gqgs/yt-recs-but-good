@@ -13,7 +13,7 @@ function el(text, attrs = {}) {
 }
 function fakeCard({ title, titleAttrs = {}, watchHref, shortsHref = '',
   shortsContainer = false, promoted = false, badge = false,
-  channel = 'Linux Foundation', metadata = [] }) {
+  channel = 'Linux Foundation', metadata = [], durationText = '' }) {
   const titleNode = title === undefined ? null : el(title, titleAttrs);
   const watchNode = el('Watch', { href: watchHref || '/watch?v=abcdefghijk' });
   const channelNode = el(channel, { href: '/@LinuxFoundation' });
@@ -37,6 +37,8 @@ function fakeCard({ title, titleAttrs = {}, watchHref, shortsHref = '',
     querySelectorAll(selector) {
       if (selector === 'a[href*="/shorts/"]')
         return shortsHref ? [el('', { href: shortsHref })] : [];
+      if (selector.includes('thumbnail-overlay-time-status'))
+        return durationText ? [el(durationText)] : [];
       return metadata.map(text => el(text));
     }
   };
@@ -115,7 +117,8 @@ test('captures classic metadata and leaves missing values absent', () => {
 test('extracts metadata from current camelCase YouTube view-model elements', () => {
   const card = fakeCard({ title: 'A new mathematics lecture', metadata: [] });
   card.querySelectorAll = selectors => {
-    if (selectors === 'a[href*="/shorts/"]') return [];
+    if (selectors === 'a[href*="/shorts/"]' ||
+        selectors.includes('thumbnail-overlay-time-status')) return [];
     assert.match(selectors, /ytContentMetadataViewModelMetadataText/);
     assert.match(selectors, /yt-content-metadata-view-model-wiz__metadata-text/);
     return [
@@ -130,7 +133,8 @@ test('extracts metadata from current camelCase YouTube view-model elements', () 
 test('reads wiz metadata rows with combined views and upload age', () => {
   const card = fakeCard({ title: 'The art of finding things', metadata: [] });
   card.querySelectorAll = selector => {
-    if (selector === 'a[href*="/shorts/"]') return [];
+    if (selector === 'a[href*="/shorts/"]' ||
+        selector.includes('thumbnail-overlay-time-status')) return [];
     assert.match(selector, /yt-content-metadata-view-model-wiz__metadata-row/);
     return [el('15K views · 2 days ago')];
   };
@@ -173,4 +177,21 @@ test('does not mark a video as Short because an unrelated video has a Shorts lin
     shortsHref: '/shorts/lmnopqrstuv'
   }));
   assert.equal(card.isShort, false);
+});
+
+test('extracts YouTube-style duration from timestamp overlay, not the title', () => {
+  const long = extractCard(fakeCard({
+    title: 'A vertical but normal full-length video', durationText: '23:51'
+  }));
+  assert.equal(long.durationSeconds, 1431);
+  const hour = extractCard(fakeCard({
+    title: 'An hour-long show', durationText: '1:03:05'
+  }));
+  assert.equal(hour.durationSeconds, 3785);
+});
+test('does not fabricate a duration for LIVE or missing overlay', () => {
+  assert.equal(extractCard(fakeCard({ title: 'Normal upload' })).durationSeconds, null);
+  assert.equal(extractCard(fakeCard({
+    title: 'Live broadcast', durationText: 'LIVE'
+  })).durationSeconds, null);
 });

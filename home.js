@@ -20,6 +20,13 @@
   let loadButton = null;
   let pageStatus = null;
   let scrollObserver = null;
+  let formatProbeInFlight = false;
+  let formatProbeCooldownUntil = 0;
+  let formatProbeRetryTimer = null;
+  let pendingFormatCount = 0;
+  let detailsInFlight = false;
+  let lastDetailsRequestAt = 0;
+  let detailsCandidateIds = [];
 
 
   const onHome = () => location.pathname === '/';
@@ -45,6 +52,24 @@
       if (!response?.ok) throw new Error(response?.error || 'Extension unavailable');
       return response;
     });
+  }
+  function requestVideoDetails(force = false) {
+    if (!enabled || !onHome() || detailsInFlight ||
+        !force && Date.now() - lastDetailsRequestAt < 45_000) return;
+    const ids = detailsCandidateIds.slice(0, 50);
+    if (!ids.length) return;
+    lastDetailsRequestAt = Date.now();
+    detailsInFlight = true;
+    send({ type: 'REFRESH_VIDEO_DETAILS', ids, force })
+      .then(({ result }) => {
+        if (result?.reason === 'upload-sync-running')
+          lastDetailsRequestAt = 0;
+      })
+      .catch(showError)
+      .finally(() => {
+        detailsInFlight = false;
+        if (enabled && onHome()) scheduleRefresh();
+      });
   }
   function requestCandidateRefresh(force = false) {
     if (!enabled || !onHome()) return;
@@ -152,12 +177,42 @@
     await send(data);
     await refresh();
   }
-  function probeFormats(videos) {
-    if (settings.hideShorts === false || !videos.length || !onHome()) return;
-    // No need to query every cached video. The worker uses a per-video
-    // result cache, a 24-ID batch maximum and a session request budget.
-    send({ type: 'PROBE_SHORTS_FORMAT', ids: videos.map(v => v.id) })
-      .catch(() => { /* Probing is optional; recommendations remain usable. */ });
+  function deferFormatProbe(ms) {
+    formatProbeCooldownUntil = Date.now() + ms;
+    clearTimeout(formatProbeRetryTimer);
+    // One-shot retry, not recurring polling. The worker continues to own the
+    // actual session request budget and cached classifications.
+    formatProbeRetryTimer = setTimeout(() => {
+      formatProbeRetryTimer = null;
+      if (enabled && onHome()) scheduleRefresh();
+    }, ms + 200);
+  }
+
+  function probeFormats(pending) {
+    if (settings.hideShorts === false || !pending.length || !enabled || !onHome() ||
+        formatProbeInFlight || Date.now() < formatProbeCooldownUntil) return;
+    formatProbeInFlight = true;
+    // Candidates are NOT rendered until this completes or returns unknown.
+    // The worker serializes/caches probes and caps outbound requests.
+    send({ type: 'PROBE_SHORTS_FORMAT', ids: pending.slice(0, 12).map(v => v.id) })
+      .then(({ result }) => {
+        if (result?.reason === 'rate-limited') {
+          deferFormatProbe(10 * 60_000);
+        } else if (!result?.started) {
+          // A worker may already be checking these IDs; avoid rapid retries
+          // and let its eventual storage update trigger the next refresh.
+          deferFormatProbe(3000);
+        }
+      })
+      .catch(() => {
+        // Format checks are optional and must not prevent loading the page.
+        // Keep uncertain videos withheld and retry on the next Home visit.
+        deferFormatProbe(30_000);
+      })
+      .finally(() => {
+        formatProbeInFlight = false;
+        if (enabled && onHome()) scheduleRefresh();
+      });
   }
 
   function card(video) {
@@ -170,6 +225,12 @@
     img.loading = 'lazy';
     img.referrerPolicy = 'no-referrer';
     anchor.append(img);
+    const durationLabel = globalThis.YTRBGShortsVisibility.formatDuration(video.durationSeconds);
+    if (durationLabel) {
+      const duration = node('span', 'ytrbg-duration', durationLabel);
+      duration.setAttribute('aria-label', 'Duration ' + durationLabel);
+      anchor.append(duration);
+    }
     const title = link(video.title, video.url, 'ytrbg-title');
     title.title = video.title;
     const channel = node('div', 'ytrbg-channel', video.channel || 'Channel unavailable');
@@ -178,10 +239,20 @@
     const summary = node('summary', '', 'Why this video?');
     const explanation = node('p', '', video.reason || 'Selected by your local recommendation policy.');
     explain.append(summary, explanation);
+    const check = video.shortsProbeDiagnostic;
+    const formatStatus = node('p', 'ytrbg-format-status',
+      check ? 'Format check: ' + (video.shortsFormat || 'unknown') +
+        ' · ' + check.variant + (check.status ? ' · HTTP ' + check.status : '') +
+        (check.width && check.height ? ' · ' + check.width + '×' + check.height : '') +
+        (check.reason && check.reason !== 'ok' ? ' · ' + check.reason : '') :
+        'Format check: not yet completed');
+    explain.append(formatStatus);
     // Manual format correction is not a dislike and does not affect the
     // preference profile. It can be reversed after toggling Hide Shorts off.
     const markedShort = video.shortOverride === undefined
-      ? Boolean(video.isShort || video.shortsFormat === 'portrait')
+      ? Boolean(video.isShort ||
+        (video.shortsFormat === 'portrait' &&
+         video.shortsProbeSource === 'oar2-frame0-jpeg-v2'))
       : video.shortOverride;
     explain.append(button(markedShort ? 'Not a Short' : 'Mark as Short',
       'ytrbg-short-label', () => {
@@ -216,12 +287,11 @@
     if (!enabled || !onHome() || !gridElement?.isConnected) return;
     const next = Math.min(visibleCount + PAGE_SIZE, rankedVideos.length);
     for (let i = visibleCount; i < next; i++) gridElement.append(card(rankedVideos[i]));
-    const appended = rankedVideos.slice(visibleCount, next);
     visibleCount = next;
     updatePagination();
-    probeFormats(appended);
   }
-  function render({ recommendations, counts, paused = false, refresh = {} }) {
+  function render({ recommendations, counts, paused = false, refresh = {},
+    detailStatus = {}, pendingFormats = [] }) {
     if (!ensureRoot() || !enabled) return;
     clearTimeout(staleStatusTimer);
     staleStatusTimer = null;
@@ -241,6 +311,8 @@
     scrollObserver = null;
     gridElement = null;
     rankedVideos = recommendations;
+    pendingFormatCount = pendingFormats.length;
+    const checkingPaused = pendingFormatCount && Date.now() < formatProbeCooldownUntil;
     const targetCount = Math.min(
       Math.max(PAGE_SIZE, visibleCount), rankedVideos.length);
     visibleCount = 0;
@@ -257,17 +329,39 @@
     const status = node('span', 'ytrbg-refresh-status', refresh.label || 'No upload refresh yet');
     status.title = refresh.message || status.textContent;
     status.setAttribute('role', 'status');
-    sync.append(refreshButton, status);
+    const detailsButton = button('Refresh details', 'ytrbg-refresh-button', () =>
+      requestVideoDetails(true));
+    detailsButton.disabled = paused || detailStatus.phase === 'running';
+    detailsButton.title = 'Refresh durations and view counts for already-collected videos';
+    const detailLabel = detailStatus.phase === 'error'
+      ? 'Details failed · ' + String(detailStatus.message || 'API error').slice(0, 65)
+      : detailStatus.phase === 'running'
+      ? 'Fetching video details…'
+      : detailStatus.phase === 'ready'
+      ? (detailStatus.durationUpdates || 0) + ' durations · ' +
+        (detailStatus.viewUpdates || 0) + ' view counts updated'
+      : '';
+    const detailText = node('span', 'ytrbg-detail-status', detailLabel);
+    detailText.title = detailStatus.message || '';
+    detailText.setAttribute('role', 'status');
+    sync.append(refreshButton, status, detailsButton, detailText);
     toolbar.append(controls, sync);
     toolbar.append(node('div', 'ytrbg-stats',
       counts.likes + ' likes · ' + counts.unseen + ' unseen candidates · ' +
-      (settings.discoveryOnly !== false ? 'Discovery sources only' : 'All sources')));
+      (settings.discoveryOnly !== false ? 'Discovery sources only' : 'All sources') +
+      (pendingFormatCount ? ' · ' + pendingFormatCount + ' checking format' : '')));
     children.push(toolbar);
     if (!recommendations.length) {
       const empty = node('section', 'ytrbg-empty');
-      empty.append(node('h2', '', paused ? 'Collection paused after reset' : 'No recommendations yet'),
+      empty.append(node('h2', '', paused ? 'Collection paused after reset' :
+        pendingFormatCount ? (checkingPaused ? 'Format checks temporarily paused' :
+          'Checking video formats') : 'No recommendations yet'),
         node('p', '', paused
           ? 'Your data was deleted successfully. Collection is still paused, so visiting Likes or Subscriptions cannot index videos. Resume collection to begin again.'
+          : pendingFormatCount
+          ? (checkingPaused
+            ? 'Some formats have not been verified yet. The extension will retry automatically; unverified videos stay hidden rather than flashing on screen.'
+            : 'Unclassified videos are held back until their format check completes. They will not briefly appear and disappear as Shorts are detected.')
           : settings.discoveryOnly !== false
           ? 'Discovery mode excludes candidates seen only on YouTube Home or Related. Visit subscriptions, channels, or searches to populate the independent candidate pool, or import subscriptions through the API.'
           : 'Collect more candidates by visiting subscriptions or performing an optional API import. Previously saved ads and broken titles are filtered.'));
@@ -302,9 +396,13 @@
       pagination.append(pageStatus, loadButton, sentinel);
       children.push(pagination);
       children.push(node('p', 'ytrbg-footer',
-        'Recommendations are local. Like videos on YouTube to teach your preferences; "Not for me" here trains only this extension.'));
+        'Recommendations are local. Like videos on YouTube to teach your preferences; "Not for me" here trains only this extension.' +
+        (pendingFormatCount ? ' ' + pendingFormatCount + ' candidate formats are awaiting checks.' : '')));
     }
     root.replaceChildren(...children);
+    // Run the checks only AFTER the page has been built without provisional
+    // Shorts. Completing a check saves the format and refreshes this feed.
+    probeFormats(pendingFormats);
     if (!recommendations.length) return;
     // Preserve the number of visible cards when feedback or candidates change.
     // This avoids jumping back to the first page after every local write.
@@ -333,7 +431,13 @@
     try {
       const response = await send({ type: 'GET_RECOMMENDATIONS' });
       if (id !== requestId || !enabled || !onHome()) return;
-      render(response.result);
+      const { ready, pending } = globalThis.YTRBGShortsVisibility.splitCandidates(
+        response.result.recommendations, settings.hideShorts !== false);
+      detailsCandidateIds = response.result.detailCandidates || [];
+      render({ ...response.result, recommendations: ready, pendingFormats: pending });
+      // Enrich cached API-only items, including portrait videos currently
+      // withheld by the Shorts heuristic but actually long-form.
+      requestVideoDetails(false);
     } catch (error) {
       if (id === requestId) showError(error);
     }
@@ -358,9 +462,15 @@
         if (next.mode !== settings.mode) visibleCount = 0;
         settings = next;
       }
+      // Retry a detail lookup immediately after an upload import finishes;
+      // the earlier attempt may have been postponed to avoid overlapping APIs.
+      const refreshChange = changes['yt-recs-candidate-refresh-v1'];
+      if (refreshChange?.newValue?.phase &&
+          refreshChange.newValue.phase !== 'running')
+        lastDetailsRequestAt = 0;
       if (changes[HOME_KEY] || changes[SETTINGS_KEY] ||
           changes['yt-recs-state-v1'] || changes['yt-recs-collection-paused-v1'] ||
-          changes['yt-recs-candidate-refresh-v1'])
+          refreshChange || changes['yt-recs-video-details-status-v1'])
         scheduleRefresh();
     });
     document.addEventListener('yt-navigate-finish', () => {
@@ -371,8 +481,10 @@
     // Revisiting a tab left open for hours is effectively another Home visit.
     // This does not set a periodic timer or poll while the page stays hidden.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && onHome() && enabled)
+      if (document.visibilityState === 'visible' && onHome() && enabled) {
         requestCandidateRefresh(false);
+        scheduleRefresh();
+      }
     });
     // YouTube uses client-side navigation and may replace the browse element.
     new MutationObserver(() => {

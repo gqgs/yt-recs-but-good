@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "yt-recs-but-good",
   "short_name": "yt-recs-but-good",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "Local-first YouTube discovery, trained by the likes you actually give.",
   "permissions": [
     "storage",
@@ -10,7 +10,8 @@
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
-    "https://www.googleapis.com/*"
+    "https://www.googleapis.com/*",
+    "https://i.ytimg.com/*"
   ],
   "action": {
     "default_title": "yt-recs-but-good",
@@ -28,6 +29,7 @@
       "js": [
         "lib/card-extractor.js",
         "content.js",
+        "lib/shorts-visibility.js",
         "home.js"
       ],
       "run_at": "document_idle",

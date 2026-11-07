@@ -172,10 +172,10 @@ test('user can override Shorts classification without deleting candidates or cha
   assert.equal(rankVideos(items, {}, NOW).length, 1);
 });
 
-test('oEmbed portrait format is filtered even when the only video URL is /watch', () => {
+test('CDN portrait JPEG is filtered even when the only video URL is /watch', () => {
   const items = {
     portrait: video('portrait', 'Vertical music clip', {
-      shortsFormat: 'portrait', url: 'https://www.youtube.com/watch?v=abcdefghijk',
+      shortsFormat: 'portrait', shortsProbeSource: 'oar2-frame0-jpeg-v2', url: 'https://www.youtube.com/watch?v=abcdefghijk',
       sources: ['subscriptions']
     }),
     regular: video('regular', 'Ordinary short documentary', {
@@ -188,4 +188,40 @@ test('oEmbed portrait format is filtered even when the only video URL is /watch'
   assert.equal(rankVideos(items, { hideShorts: false }, NOW).length, 2);
   items.portrait.shortOverride = false;
   assert.equal(rankVideos(items, {}, NOW).length, 2);
+});
+
+test('old oEmbed portrait results are staged for new classification rather than trusted', () => {
+  const items = {
+    legacy: video('legacy', 'Old oEmbed result', {
+      shortsFormat: 'portrait', shortsProbedAt: NOW,
+      url: 'https://www.youtube.com/watch?v=abcdefghijk', sources: ['subscriptions']
+    })
+  };
+  assert.equal(rankVideos(items, {}, NOW).length, 1);
+  items.legacy.shortsProbeSource = 'oar2-frame0-jpeg-v2';
+  assert.equal(rankVideos(items, {}, NOW).length, 0);
+});
+
+test('long-form portrait videos are never filtered by their vertical thumbnails', () => {
+  const items = {
+    first: video('first', 'Vertical car livestream', {
+      durationSeconds: 1431, shortsFormat: 'portrait',
+      shortsProbeSource: 'oar2-frame0-jpeg-v2', isShort: true,
+      sources: ['subscriptions']
+    }),
+    second: video('second', 'Portrait talk recorded for 48 minutes', {
+      durationSeconds: 2939, shortsFormat: 'portrait',
+      shortsProbeSource: 'oar2-frame0-jpeg-v2',
+      sources: ['subscriptions']
+    }),
+    clip: video('clip', 'Short vertical clip', {
+      durationSeconds: 75, shortsFormat: 'portrait',
+      shortsProbeSource: 'oar2-frame0-jpeg-v2',
+      sources: ['subscriptions']
+    })
+  };
+  const visible = rankVideos(items, {}, NOW).map(v => v.id).sort();
+  assert.deepEqual(visible, ['first', 'second']);
+  items.first.shortOverride = true;
+  assert.deepEqual(rankVideos(items, {}, NOW).map(v => v.id), ['second']);
 });

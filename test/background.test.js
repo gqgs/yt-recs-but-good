@@ -11,6 +11,7 @@ let oauthConfigured = false;
 let authGranted = false;
 const identityCalls = [];
 let apiCalls = 0;
+let failVideoDetails = false;
 const oldChrome = globalThis.chrome;
 const oldFetch = globalThis.fetch;
 globalThis.chrome = {
@@ -69,13 +70,36 @@ globalThis.chrome = {
 // Simulate the official API with no external requests or credentials.
 globalThis.fetch = async (url, options) => {
   const parsed = new URL(url);
-  if (parsed.hostname === 'www.youtube.com' && parsed.pathname === '/oembed') {
-    const requested = new URL(parsed.searchParams.get('url'));
-    const id = requested.pathname.split('/').at(-1);
-    return { ok: true, json: async () => ({
-      width: id === 'portrait123' ? 113 : 200,
-      height: id === 'portrait123' ? 200 : 113
-    }) };
+  if (parsed.hostname === 'i.ytimg.com' &&
+      parsed.pathname === '/vi/uo5VU-KtUZk/oar2.jpg') {
+    return { ok: false, status: 404,
+      headers: { get: () => 'image/jpeg' },
+      arrayBuffer: async () => Uint8Array.from([0xff,0xd8,0xff,0xd9]).buffer };
+  }
+  if (parsed.hostname === 'i.ytimg.com' &&
+      parsed.pathname === '/vi/uo5VU-KtUZk/frame0.jpg') {
+    const bytes = Uint8Array.from([
+      0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0,
+      0xff, 0xc0, 0, 17, 8, 480 >> 8, 480 & 255,
+      268 >> 8, 268 & 255, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0
+    ]);
+    return { ok: true, status: 206,
+      headers: { get: () => 'image/jpeg' },
+      arrayBuffer: async () => bytes.buffer };
+  }
+  if (parsed.hostname === 'i.ytimg.com' && parsed.pathname.startsWith('/vi/') && parsed.pathname.endsWith('/oar2.jpg')) {
+    const id = parsed.pathname.split('/')[2];
+    const portrait = id === 'portrait123' || id === 'hiddenlong1';
+    const width = portrait ? 1080 : 1920;
+    const height = portrait ? 1920 : 1080;
+    const bytes = Uint8Array.from([
+      0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0,
+      0xff, 0xc0, 0, 17, 8, height >> 8, height & 255,
+      width >> 8, width & 255, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0
+    ]);
+    assert.equal(options.headers.Range, 'bytes=0-32767');
+    return { ok: true, status: 206, headers: { get: () => 'image/jpeg' },
+      arrayBuffer: async () => bytes.buffer };
   }
   if (parsed.hostname !== 'www.googleapis.com' ||
       options?.headers?.Authorization !== 'Bearer testing-token') {
@@ -98,7 +122,22 @@ globalThis.fetch = async (url, options) => {
         videoOwnerChannelId: CHANNEL, publishedAt: '2026-11-06T00:00:00Z' },
       contentDetails: { videoId: 'newvid12345' }
     }] })
-  };
+  };  if (parsed.pathname.endsWith('/videos')) {
+    if (failVideoDetails) return {
+      ok: false, status: 403, json: async () => ({
+        error: { message: 'quotaExceeded', errors: [{ reason: 'quotaExceeded' }] }
+      })
+    };
+    const ids = parsed.searchParams.get('id').split(',');
+    return { ok: true, json: async () => ({
+      items: ids.map(id => ({
+        id, contentDetails: { duration: id === 'newvid12345' ? 'PT48M59S' : 'PT23M51S' },
+        statistics: { viewCount: '56000' },
+        snippet: { title: 'A systems talk' }
+      }))
+    }) };
+  }
+
   throw new Error('Unexpected endpoint: ' + parsed.pathname);
 };
 await import('../background.js');
@@ -305,6 +344,64 @@ test('manual refresh authorizes explicitly, adds new videos and applies 1h TTL',
   assert.equal(again.result.reason, 'fresh-or-throttled');
   assert.equal(apiCalls, callsBefore);
 });
+test('refreshing uploads carries duration and counts through worker storage and Home', async () => {
+  const item = (await message({ type: 'GET_STATE' })).state.items['newvid12345'];
+  assert.equal(item.durationSeconds, 2939);
+  const home = await message({ type: 'GET_RECOMMENDATIONS' });
+  const candidate = home.result.recommendations.find(v => v.id === 'newvid12345');
+  assert.equal(candidate.durationSeconds, 2939);
+  // Automatic upload refresh requests contentDetails but deliberately omits
+  // statistics. A separate bounded detail lookup provides view counts.
+  assert.equal(candidate.viewCount, null);
+  assert.equal(home.result.refresh.metadata.failures, 0);
+  assert.equal(home.result.refresh.metadata.durations, 1);
+});
+test('Home can enrich cached videos without revisiting subscribed channels', async () => {
+  const id = 'duration123';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'A vertical but long performance', channel: 'Music' }
+  ] });
+  let current = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
+  assert.equal(current.recommendations.find(v => v.id === id).durationSeconds, null);
+  const beforeCalls = apiCalls;
+  const result = await message({ type: 'REFRESH_VIDEO_DETAILS', ids: [id] });
+  assert.equal(result.ok, true);
+  assert.equal(result.result.durationUpdates, 1);
+  assert.equal(result.result.viewUpdates, 1);
+  assert.equal(apiCalls, beforeCalls + 1);
+  current = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
+  assert.equal(current.recommendations.find(v => v.id === id).durationSeconds, 1431);
+  assert.match(current.recommendations.find(v => v.id === id).metadataLine, /56K views/);
+  assert.equal(current.detailStatus.phase, 'ready');
+  const repeat = await message({ type: 'REFRESH_VIDEO_DETAILS', ids: [id] });
+  assert.equal(repeat.result.reason, 'up-to-date');
+  assert.equal(apiCalls, beforeCalls + 1);
+  await message({ type: 'MARK_SEEN', id });
+});
+test('supplemental metadata lookup failure is visible and preserves preferences', async () => {
+  const id = 'failure1234';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'A normal science lecture', channel: 'Science' }
+  ] });
+  failVideoDetails = true;
+  const request = await message({ type: 'REFRESH_VIDEO_DETAILS', ids: [id] });
+  assert.equal(request.ok, true);
+  assert.equal(request.result.started, false);
+  assert.equal(request.result.reason, 'api-error');
+  const current = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(current.result.detailStatus.phase, 'error');
+  assert.match(current.result.detailStatus.message, /quotaExceeded/);
+  const stored = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(stored.candidate, true);
+  assert.equal(stored.durationSeconds, null);
+  assert.ok(stored.detailsAttemptedAt);
+  const automatic = await message({ type: 'REFRESH_VIDEO_DETAILS', ids: [id] });
+  assert.equal(automatic.result.reason, 'up-to-date');
+  failVideoDetails = false;
+  const retry = await message({ type: 'REFRESH_VIDEO_DETAILS', ids: [id], force: true });
+  assert.equal(retry.result.durationUpdates, 1);
+  await message({ type: 'MARK_SEEN', id });
+});
 test('full reset clears last refresh and prevents automatic collection until resumed', async () => {
   const cleared = await message({ type: 'RESET' });
   assert.equal(cleared.ok, true);
@@ -380,7 +477,7 @@ test('manual Shorts labeling filters candidates without polluting preference fee
   await message({ type: 'MARK_SEEN', id });
 });
 
-test('on-demand oEmbed format probe filters API-only /watch URL videos', async () => {
+test('on-demand CDN thumbnail probe filters API-only /watch URL videos', async () => {
   const id = 'portrait123';
   await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [{
     id, title: 'Format probe candidate', channel: 'Clips'
@@ -392,6 +489,10 @@ test('on-demand oEmbed format probe filters API-only /watch URL videos', async (
   assert.equal(probed.result.checked, 1);
   const state = (await message({ type: 'GET_STATE' })).state.items[id];
   assert.equal(state.shortsFormat, 'portrait');
+  assert.equal(state.shortsProbeSource, 'oar2-frame0-jpeg-v2');
+  assert.equal(state.shortsProbeDiagnostic.variant, 'oar2');
+  assert.equal(state.shortsProbeDiagnostic.width, 1080);
+  assert.equal(state.shortsProbeDiagnostic.height, 1920);
   assert.ok(state.shortsProbedAt);
   const after = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
   assert.equal(after.recommendations.some(v => v.id === id), false);
@@ -400,4 +501,59 @@ test('on-demand oEmbed format probe filters API-only /watch URL videos', async (
   await message({ type: 'MARK_SHORT', id, isShort: false });
   const restored = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
   assert.equal(restored.recommendations.some(v => v.id === id), true);
+});
+
+test('fallback thumbnail 404 then frame0 portrait is cached and filtered', async () => {
+  const id = 'uo5VU-KtUZk';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'Unlabeled portrait clip', channel: 'Example' }
+  ] });
+  const result = await message({ type: 'PROBE_SHORTS_FORMAT', ids: [id] });
+  assert.equal(result.ok, true);
+  assert.equal(result.result.portrait, 1);
+  const state = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(state.shortsProbeSource, 'oar2-frame0-jpeg-v2');
+  assert.equal(state.shortsProbeDiagnostic.variant, 'frame0');
+  assert.equal(state.shortsProbeDiagnostic.width, 268);
+  assert.equal(state.shortsFormat, 'portrait');
+  const after = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(after.result.recommendations.some(v => v.id === id), false);
+});
+
+test('duration metadata is preserved and protects long-form portrait candidates', async () => {
+  const id = 'portraitLNG';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'Full vertical interview', channel: 'Music', durationSeconds: 1431,
+      isShort: true }
+  ] });
+  let view = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(view.result.recommendations.some(v => v.id === id), true);
+  const check = await message({ type: 'PROBE_SHORTS_FORMAT', ids: [id] });
+  assert.equal(check.result.reason, 'cached');
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'Full vertical interview', channel: 'Music' }
+  ] });
+  const candidate = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(candidate.durationSeconds, 1431);
+  assert.equal(candidate.feedback, undefined);
+  await message({ type: 'MARK_SEEN', id });
+});
+
+test('duration enrichment candidates include portrait videos excluded by ranking', async () => {
+  const id = 'hiddenlong1';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [{
+    id, title: 'Vertical talk wrongly identified as portrait short', channel: 'Talks'
+  }] });
+  await message({ type: 'PROBE_SHORTS_FORMAT', ids: [id] });
+  const view = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(view.result.recommendations.some(v => v.id === id), false);
+  assert.equal(view.result.detailCandidates.includes(id), true);
+  const details = await message({ type: 'REFRESH_VIDEO_DETAILS', ids: [id], force: true });
+  assert.equal(details.ok, true);
+  const candidate = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(candidate.durationSeconds, 1431);
+  assert.equal(candidate.shortsFormat, 'portrait');
+  const restored = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(restored.result.recommendations.some(v => v.id === id), true);
+  await message({ type: 'MARK_SEEN', id });
 });

@@ -166,43 +166,127 @@ Authorization uses `chrome.identity.launchWebAuthFlow()` with a registered HTTPS
 
 Google authorization, consent configuration, API quota, or browser behavior may still prevent syncing; browsing-based recommendations remain available. For broader distribution, review the YouTube API Services policies, including data-retention and refresh obligations.
 
+## Recovering missing durations and view counts
+
+The extension can import a video successfully even when its supplemental
+`videos.list` metadata request fails. Earlier versions **silently discarded**
+those errors, leaving many cards with an upload age but no duration or view
+count. This has been corrected: automatic and manual upload imports now record
+how many metadata batches succeeded, how many duration records were received,
+and any API error. Missing data is never fabricated.
+
+**Refresh details** on the curated Home performs a bounded lookup for up to
+50 *already-collected* videos lacking duration or view information, using one
+`videos.list(part=contentDetails,statistics)` request. Home also attempts
+this non-interactively when eligible recommendations are shown. It does not
+revisit subscriptions, clear the local dataset, or prompt for Google login.
+Duration and view counts are merged into existing records without altering
+likes, watched flags, manual Shorts labels, or ranking preferences.
+
+A failed lookup displays the YouTube API error beside **Refresh details**
+rather than appearing to succeed. Automatic retries are throttled for one
+hour per video; clicking the button explicitly bypasses this cooldown.
+You can use the status and the existing service-worker console to diagnose
+authorization, quota, or API response problems. No full-cache purge is
+necessary; the current OAuth authorization is reused.
+
+The API can legitimately omit duration for live/upcoming streams and view
+counts for unavailable/restricted videos. Those cards remain usable and
+display only metadata actually retrieved.
+
+## Video duration and long-form portrait videos
+
+Curated Home and the extension popup now show a YouTube-style **duration badge**
+at the bottom-right of the thumbnail (for example `23:51` or `48:59`).
+The extension reads the native duration overlay when browsing YouTube and the
+`videos.list(part=contentDetails)` response during API import. Duration is
+available through the **same batched API request** already used for Shorts
+metadata, without another request per video.
+
+YouTube currently defines Shorts as up to **three minutes**. A known duration
+over 180 seconds therefore protects an otherwise vertical/portrait-format
+candidate from automatic Shorts exclusion. That includes regular portrait
+videos of 23:51 and 48:59, like the examples that motivated this change.
+An explicit manual **Mark as Short** still takes precedence, and an explicit
+**Not a Short** still overrides the automatic filter.
+
+A missing, live, or invalid duration is shown without a badge and is never
+fabricated. Existing stored video records gain duration on subsequent API
+refreshes or when the relevant video appears again in YouTube's page markup;
+there is **no need to delete the local recommendation cache**.
+
+## Shorts classification before display
+
+The curated Home **stages uncertain candidates before rendering** whenever
+Hide Shorts is enabled. Previously, portrait clips briefly appeared before
+a slower asynchronous format check removed them. Verified recommendations
+appear immediately, while unverified candidates remain withheld until
+classification finishes or reports an inconclusive result.
+
+The popup follows the same eligibility policy. If a probe fails or the
+request budget is temporarily exhausted, the UI reports that verification
+is pending instead of showing potential Shorts prematurely. A one-shot
+retry follows the cooldown; no data deletion is necessary.
+
 ## Hide Shorts and portrait clips (default: enabled)
 
-**Hide Shorts and portrait clips (best effort)** is enabled by default under
-the popup's **Tune** settings. It affects both the curated YouTube Home and the
-popup preview. Disabling it immediately makes filtered candidates eligible
-again; no cache reset is needed.
+The extension's **Hide Shorts and portrait clips (best effort)** option in
+**Tune** is enabled by default. Turning it off immediately restores all
+otherwise eligible candidates.
 
-This feature has three complementary signals:
+Classification uses multiple signals:
 
-1. **Explicit Shorts evidence:** `/shorts/<id>` links, known Shorts-specific
-   YouTube page containers, creator `#shorts` tags and custom
-   `shortsAspectRatio` thumbnail metadata.
-2. **On-demand player format probing:** For API-imported candidates without
-   Shorts evidence, the extension queries YouTube's public `/oembed` endpoint
-   using `https://www.youtube.com/shorts/<id>`. Some Shorts return portrait
-   player dimensions even when their regular `/watch?v=<id>` URL is valid.
-   A reported portrait ratio of at least 1.4 is treated as likely short-form
-   content and hidden. Landscape results remain eligible.
-3. **Explicit user correction:** Open **Why this video?** and select
-   **Mark as Short** to hide a missed candidate. If a regular portrait-format
-   video is incorrectly hidden, disable the filter and select **Not a Short**
-   for that video. This is separate from negative preference feedback.
+1. **Explicit Shorts evidence** from YouTube links/card markup, creator
+   hashtags, and Shorts-specific thumbnail metadata.
+2. **A portrait-thumbnail CDN request** for uncertain candidates:
+   `https://i.ytimg.com/vi/<video-id>/oar2.jpg`. The extension requests
+   the first 32 KiB of the JPEG (the CDN may ignore the byte range), parses
+   the JPEG header for actual dimensions, and classifies a portrait aspect
+   ratio of at least 1.4 as likely vertical short-form content. When `oar2`
+   specifically returns HTTP 404, it makes **one conditional fallback request**
+   to `frame0.jpg`. Successful `oar2` checks still require only one request.
+3. **Manual corrections** via **Why this video? → Mark as Short / Not a Short**.
+   Explicit user labels override automatic signals without changing likes.
 
-To avoid excessive requests, format probes are limited to **12 newly displayed
-candidates per batch**, four concurrent requests, with a 6.5-second timeout
-per request. Up to **48 probes per 10-minute browser session window** can be
-initiated; results are cached on individual video records. A failed query is
-inconclusive, not grounds for hiding a video or penalizing its creator.
+A CDN format check is normally **one GET per newly checked video**, and only
+an `oar2` 404 triggers a second `frame0` request. These requests consume no
+YouTube Data API quota. A successful HTTP response alone isn't enough:
+normal videos can also have `oar2.jpg` thumbnails. A missing image may
+return HTTP 404 with a small JPEG placeholder, so the response status is
+checked before parsing dimensions. Network errors, invalid images and
+timeouts return *unknown* rather than falsely identifying Shorts.
 
-**Accuracy trade-off:** This is deliberately a *portrait-format heuristic*,
-not an official Shorts classifier. Some regular portrait videos may be
-filtered, and some Shorts may still be missed if oEmbed gives a landscape or
-unavailable response. The user can reverse a false positive. Video duration
-alone is **never** used to classify Shorts, so short ordinary demos and music
-performances aren't hidden merely because they're brief.
+Five user-reported misses were checked against the real CDN on November 7,
+2026. Four returned `1080×1920` from `oar2`; the fifth
+(`uo5VU-KtUZk`) returned 404 for `oar2` but `268×480` from `frame0`.
+These regression cases motivate the fallback; they are **not** a guarantee
+that every Shorts video exposes one of the variants.
 
-The setting doesn't change native YouTube Shorts shelves or search pages.
+For debugging, expand **Why this video?** beneath a recommendation. The
+**Format check** line reports the selected variant, HTTP status, dimensions
+and any error reason, without exposing account credentials. To independently
+inspect public CDN variants for specific video IDs on your machine:
+
+```bash
+node scripts/diagnose-shorts.mjs EZy9KqeQKrA HlhOrCrn7vk zzITiIxxD8c -prSdejMkaI uo5VU-KtUZk
+```
+
+Results are cached in local video records: verified portrait/landscape
+classifications last **30 days**, inconclusive outcomes **6 hours**.
+Format checks are limited to 12 candidates at a time, four concurrent
+requests and 48 requests per 10-minute browser-session window. Each request
+has a 6.5-second deadline.
+
+The previous oEmbed and first-generation `oar2` classifications are
+automatically rechecked with the versioned `oar2-frame0-jpeg-v2` method on
+first use, without clearing preferences, watch history, or the candidate cache.
+
+**Limitations:** Portrait format is not an official Shorts flag. A
+regular portrait video with unknown duration may still be excluded, and some
+Shorts may remain eligible when a CDN variant is absent or unexpected.
+Known videos longer than three minutes bypass the portrait-based filter.
+Duration alone is **never** used to call a short video a Short. The option
+does not hide native Shorts shelves outside the curated recommender.
 
 ## Discovery and repeat filtering
 

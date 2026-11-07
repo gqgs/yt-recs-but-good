@@ -51,10 +51,11 @@ test('retrieves subscriptions and recent uploads in bounded batches', async () =
       snippet: { title: 'An actual upload' }, contentDetails: { videoId: VID }
     }] }) };
     if (u.pathname.endsWith('/videos')) {
-      assert.equal(u.searchParams.get('part'), 'snippet,statistics');
+      assert.equal(u.searchParams.get('part'), 'snippet,statistics,contentDetails');
       assert.equal(u.searchParams.get('id'), VID);
       return { ok: true, json: async () => ({ items: [{
-        id: VID, statistics: { viewCount: '243210' }
+        id: VID, statistics: { viewCount: '243210' },
+        contentDetails: { duration: 'PT23M51S' }
       }] }) };
     }
     throw new Error('unexpected request');
@@ -69,11 +70,22 @@ test('retrieves subscriptions and recent uploads in bounded batches', async () =
   assert.equal(result.videos, 1);
   assert.equal(batches[0][0].id, VID);
   assert.equal(batches[0][0].viewCount, '243210');
+  assert.equal(batches[0][0].durationSeconds, 1431);
+  assert.equal(result.metadata.durations, 1);
+  assert.equal(result.metadata.failures, 0);
 });
 test('reports API failures without displaying credentials', async () => {
   await assert.rejects(requestYouTube('videos', {}, 'secret-token', async () => ({
     ok: false, status: 403, json: async () => ({ error: { message: 'Quota exceeded' } })
   })), /Quota exceeded/);
+});
+
+test('YouTube likes preserve duration from contentDetails without extra API calls', () => {
+  const result = likedVideo({
+    id: VID, snippet: { title: 'Lecture', channelId: CID },
+    contentDetails: { duration: 'PT48M59S' }
+  });
+  assert.equal(result.durationSeconds, 2939);
 });
 
 test('missing statistics do not prevent subscribed upload import', async () => {
@@ -94,6 +106,8 @@ test('missing statistics do not prevent subscribed upload import', async () => {
   });
   assert.equal(result.videos, 1);
   assert.equal(videos[0].viewCount, undefined);
+  assert.equal(result.metadata.failures, 1);
+  assert.match(result.metadata.lastError, /Not accessible/);
 });
 
 test('lightweight automatic upload checks request Shorts metadata but not view statistics', async () => {
@@ -111,10 +125,11 @@ test('lightweight automatic upload checks request Shorts metadata but not view s
       }) };
     }
     if (parsed.pathname.endsWith('/videos')) {
-      assert.equal(parsed.searchParams.get('part'), 'snippet');
+      assert.equal(parsed.searchParams.get('part'), 'snippet,contentDetails');
       assert.equal(parsed.searchParams.get('id'), VID);
       return { ok: true, json: async () => ({ items: [{
-        id: VID, snippet: { title: 'Recent talk',
+        id: VID, contentDetails: { duration: 'PT48M59S' },
+        snippet: { title: 'Recent talk',
           thumbnails: { shortsAspectRatio: { url: 'https://example.com/portrait.jpg' } }
         }
       }] }) };
@@ -130,6 +145,7 @@ test('lightweight automatic upload checks request Shorts metadata but not view s
   assert.equal(videos[0].id, VID);
   assert.deepEqual(requests.map(p => p.split('/').at(-1)), ['channels', 'playlistItems', 'videos']);
   assert.equal(videos[0].isShort, true);
+  assert.equal(videos[0].durationSeconds, 2939);
 });
 
 test('skips one unavailable uploads playlist but imports the other subscriptions', async () => {
