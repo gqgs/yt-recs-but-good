@@ -15,3 +15,7 @@ jobs:
           node-version: '22'
       - name: Validate extension JavaScript and test recommender
         run: npm run check
+      - name: Public thumbnail smoke benchmark (temporary)
+        run: |
+          npm install --no-save sharp
+          node scripts/diagnose-three-panel.mjs
