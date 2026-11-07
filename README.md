@@ -139,6 +139,27 @@ Authorization uses `chrome.identity.launchWebAuthFlow()` with a registered HTTPS
 
 Google authorization, consent configuration, API quota, or browser behavior may still prevent syncing; browsing-based recommendations remain available. For broader distribution, review the YouTube API Services policies, including data-retention and refresh obligations.
 
+## Hide YouTube Shorts (default: enabled)
+
+The extension hides **confirmed YouTube Shorts** from its curated recommendations
+by default. In the popup, open **Tune** and uncheck **Hide YouTube Shorts in
+recommendations** to show them again immediately. This filter applies to both
+the YouTube Home replacement and the popup's recommendation preview. It is
+stored with your local preferences and does not delete candidates, likes, or
+watch history.
+
+Shorts classification uses actual YouTube `/shorts/<video-id>` links and
+Shorts-specific YouTube card containers. **Video duration is not a Shorts
+classifier**: ordinary short music performances, demos, and educational
+videos remain eligible.
+
+**Limitation:** YouTube Data API upload records don't expose a reliable
+Shorts-type flag. API-only candidates with no Shorts evidence remain eligible
+until the extension encounters the corresponding Shorts link or card in
+YouTube's interface. This deliberately avoids hiding regular videos based on
+unreliable duration or aspect-ratio guesses. This setting does not remove Shorts
+from YouTube's own shelves, search results, or native pages.
+
 ## Discovery and repeat filtering
 
 After testing the first curated Home feed, it became clear that ranking videos taken
