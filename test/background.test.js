@@ -350,7 +350,9 @@ test('refreshing uploads carries duration and counts through worker storage and 
   const home = await message({ type: 'GET_RECOMMENDATIONS' });
   const candidate = home.result.recommendations.find(v => v.id === 'newvid12345');
   assert.equal(candidate.durationSeconds, 2939);
-  assert.match(candidate.metadataLine, /56K views/);
+  // Automatic upload refresh requests contentDetails but deliberately omits
+  // statistics. A separate bounded detail lookup provides view counts.
+  assert.equal(candidate.viewCount, null);
   assert.equal(home.result.refresh.metadata.failures, 0);
   assert.equal(home.result.refresh.metadata.durations, 1);
 });
