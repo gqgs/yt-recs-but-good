@@ -123,6 +123,12 @@ function renderVideo(video, index) {
   img.loading = 'lazy';
   img.referrerPolicy = 'no-referrer';
   thumbnail.append(img);
+  const durationLabel = globalThis.YTRBGShortsVisibility.formatDuration(video.durationSeconds);
+  if (durationLabel) {
+    const badge = element('span', 'duration-badge', durationLabel);
+    badge.setAttribute('aria-label', 'Duration ' + durationLabel);
+    thumbnail.append(badge);
+  }
   const info = element('div', 'details');
   const title = button(video.title, 'video-title', () => open(video.url));
   title.title = video.title;
