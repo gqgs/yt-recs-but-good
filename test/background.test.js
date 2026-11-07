@@ -346,3 +346,28 @@ test('an orphaned running refresh is reported as interrupted, enabling a retry',
   const home = await message({ type: 'GET_RECOMMENDATIONS' });
   assert.equal(home.result.refresh.phase, 'interrupted');
 });
+
+test('manual Shorts labeling filters candidates without polluting preference feedback', async () => {
+  const id = 'markshort34';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'Video without API Shorts flag', channel: 'Clips' }
+  ] });
+  let view = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(view.result.recommendations.some(v => v.id === id), true);
+  const changed = await message({ type: 'MARK_SHORT', id, isShort: true });
+  assert.equal(changed.result.recorded, true);
+  view = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(view.result.recommendations.some(v => v.id === id), false);
+  let stored = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(stored.feedback, undefined);
+  assert.equal(stored.shortOverride, true);
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [{
+    id, title: 'Video without API Shorts flag', isShort: false, channel: 'Clips'
+  }] });
+  stored = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(stored.shortOverride, true);
+  await message({ type: 'MARK_SHORT', id, isShort: false });
+  view = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(view.result.recommendations.some(v => v.id === id), true);
+  await message({ type: 'MARK_SEEN', id });
+});
