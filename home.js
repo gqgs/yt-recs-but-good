@@ -212,12 +212,19 @@
     const summary = node('summary', '', 'Why this video?');
     const explanation = node('p', '', video.reason || 'Selected by your local recommendation policy.');
     explain.append(summary, explanation);
+    const check = video.shortsProbeDiagnostic;
+    const formatStatus = node('p', 'ytrbg-format-status',
+      check ? 'Format check: ' + (video.shortsFormat || 'unknown') +
+        ' · ' + check.variant + (check.status ? ' · HTTP ' + check.status : '') +
+        (check.width && check.height ? ' · ' + check.width + '×' + check.height : '') :
+        'Format check: not yet completed');
+    explain.append(formatStatus);
     // Manual format correction is not a dislike and does not affect the
     // preference profile. It can be reversed after toggling Hide Shorts off.
     const markedShort = video.shortOverride === undefined
       ? Boolean(video.isShort ||
         (video.shortsFormat === 'portrait' &&
-         video.shortsProbeSource === 'oar2-jpeg-v1'))
+         video.shortsProbeSource === 'oar2-frame0-jpeg-v2'))
       : video.shortOverride;
     explain.append(button(markedShort ? 'Not a Short' : 'Mark as Short',
       'ytrbg-short-label', () => {
