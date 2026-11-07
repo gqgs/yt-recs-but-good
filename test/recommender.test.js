@@ -171,3 +171,21 @@ test('user can override Shorts classification without deleting candidates or cha
   items.candidate.isShort = false;
   assert.equal(rankVideos(items, {}, NOW).length, 1);
 });
+
+test('oEmbed portrait format is filtered even when the only video URL is /watch', () => {
+  const items = {
+    portrait: video('portrait', 'Vertical music clip', {
+      shortsFormat: 'portrait', url: 'https://www.youtube.com/watch?v=abcdefghijk',
+      sources: ['subscriptions']
+    }),
+    regular: video('regular', 'Ordinary short documentary', {
+      shortsFormat: 'landscape', durationSeconds: 36,
+      url: 'https://www.youtube.com/watch?v=lmnopqrstuv',
+      sources: ['subscriptions']
+    })
+  };
+  assert.deepEqual(rankVideos(items, {}, NOW).map(x => x.id), ['regular']);
+  assert.equal(rankVideos(items, { hideShorts: false }, NOW).length, 2);
+  items.portrait.shortOverride = false;
+  assert.equal(rankVideos(items, {}, NOW).length, 2);
+});
