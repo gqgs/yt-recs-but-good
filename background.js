@@ -4,12 +4,16 @@ import { fetchLikedVideos, fetchSubscriptions, fetchUploads } from './lib/api-sy
 import { normalizeTtlMinutes, shouldRefresh, formatRefreshAge,
   selectSubscriptionRefreshBatch, CHANNELS_PER_REFRESH, REFRESH_STALE_MS } from './lib/refresh-policy.js';
 import { getGoogleAccessToken, clearGoogleAccessToken, configuredGoogleClientId } from './lib/google-auth.js';
+import { probeFormatBatch, SHORTS_PROBE_MAX_BATCH,
+  SHORTS_PROBE_WINDOW_MS } from './lib/shorts-probe.js';
 
 // Privacy-first persistence and event log. All activity remains in chrome.storage.local.
 const KEY = 'yt-recs-state-v1';
 const SETTINGS_KEY = 'yt-recs-settings-v1';
 const API_SYNC_KEY = 'yt-recs-api-sync-v1';
 const REFRESH_KEY = 'yt-recs-candidate-refresh-v1';
+const PROBE_BUDGET_KEY = 'yt-recs-shorts-probe-budget-v1';
+const MAX_SHORTS_PROBES_PER_WINDOW = 48;
 
 const PAUSED_KEY = 'yt-recs-collection-paused-v1';
 const MAX_ITEMS = 4000;
@@ -72,6 +76,8 @@ function updateItem(state, data, now, source = '') {
     hasResume: Boolean(data.hasResume || old.hasResume),
     // Preserve confirmed Shorts identity across later API imports.
     isShort: Boolean(old.isShort || data.isShort === true),
+    shortsFormat: old.shortsFormat || 'unverified',
+    shortsProbedAt: old.shortsProbedAt || null,
     thumbnail: 'https://i.ytimg.com/vi/' + data.id + '/mqdefault.jpg',
     url: 'https://www.youtube.com/watch?v=' + data.id,
     publishedText: clean(data.publishedText, 80) || old.publishedText || '',
@@ -230,6 +236,59 @@ function enqueueWrite(fn) {
   });
   queue = task.catch(() => {});
   return task;
+}
+
+// Probe only visible, user-requested ranking candidates. Never crawl all
+// subscriptions, and never send a page URL or authentication token to oEmbed.
+let shortsProbePromise = null;
+async function probeUnclassifiedCandidates(candidateIds) {
+  if (shortsProbePromise) return { started: false, reason: 'running' };
+  const task = (async () => {
+    const saved = await chrome.storage.local.get([KEY, SETTINGS_KEY, PAUSED_KEY]);
+    if (saved[PAUSED_KEY] === true ||
+        saved[SETTINGS_KEY]?.hideShorts === false)
+      return { started: false, reason: 'disabled' };
+    const items = saved[KEY]?.items || {};
+    const now = Date.now();
+    const eligible = [...new Set(candidateIds)].filter(id => {
+      const video = items[id];
+      if (!validId(id) || !video || !video.candidate ||
+          video.shortOverride !== undefined || video.isShort) return false;
+      const last = Number(video.shortsProbedAt || 0);
+      const expiry = video.shortsFormat === 'unknown' ? 6 * 3600_000 : 30 * DAY;
+      return !last || now - last > expiry;
+    });
+    if (!eligible.length) return { started: false, reason: 'cached' };
+    const budget = (await chrome.storage.session.get(PROBE_BUDGET_KEY))[PROBE_BUDGET_KEY] || {};
+    const activeWindow = now - Number(budget.windowStart || 0) < SHORTS_PROBE_WINDOW_MS;
+    const count = activeWindow ? Number(budget.count || 0) : 0;
+    const remaining = MAX_SHORTS_PROBES_PER_WINDOW - count;
+    if (remaining <= 0) return { started: false, reason: 'rate-limited' };
+    const batch = eligible.slice(0, Math.min(remaining, SHORTS_PROBE_MAX_BATCH, 12));
+    // Reserve capacity before making any requests so MV3 worker restarts cannot
+    // silently bypass the per-window outbound request cap.
+    await chrome.storage.session.set({ [PROBE_BUDGET_KEY]: {
+      windowStart: activeWindow ? budget.windowStart : now,
+      count: count + batch.length
+    } });
+    const results = await probeFormatBatch(batch);
+    await enqueueWrite(state => {
+      for (const [id, format] of results) {
+        const video = state.items[id];
+        if (!video) continue;
+        video.shortsFormat = format;
+        video.shortsProbedAt = Date.now();
+      }
+    });
+    return { started: true, checked: results.size,
+      portrait: [...results.values()].filter(v => v === 'portrait').length };
+  })();
+  shortsProbePromise = task;
+  try {
+    return await task;
+  } finally {
+    if (shortsProbePromise === task) shortsProbePromise = null;
+  }
 }
 
 let apiSyncPromise = null;
@@ -457,6 +516,12 @@ function startCandidateRefresh({ force = false, interactive = false } = {}) {
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (!msg || typeof msg.type !== 'string') return false;
+  if (msg.type === 'PROBE_SHORTS_FORMAT') {
+    const ids = Array.isArray(msg.ids) ? msg.ids.filter(validId).slice(0, 100) : [];
+    probeUnclassifiedCandidates(ids).then(result => reply({ ok: true, result }),
+      error => reply({ ok: false, error: String(error) }));
+    return true;
+  }
   if (msg.type === 'REFRESH_CANDIDATES') {
     startCandidateRefresh({
       force: msg.force === true,
@@ -557,6 +622,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         // cannot immediately re-import candidates while the user clears them.
         await chrome.storage.local.set({ [PAUSED_KEY]: true });
         await chrome.storage.local.remove([KEY, REFRESH_KEY]);
+        await chrome.storage.session.remove(PROBE_BUDGET_KEY);
         await clearGoogleAccessToken();
         return { reset: true, paused: true };
       }
