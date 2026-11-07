@@ -564,3 +564,34 @@ test('duration enrichment candidates include portrait videos excluded by ranking
   assert.equal(restored.result.recommendations.some(v => v.id === id), true);
   await message({ type: 'MARK_SEEN', id });
 });
+
+test('Recent worker sends a growing chronological window beyond 100 stored candidates', async () => {
+  const now = Date.now();
+  const all = Array.from({ length: 225 }, (_, i) => ({
+    id: 'r' + String(i).padStart(10, '0'),
+    title: 'Recent technical upload ' + i,
+    channel: 'Subscribed channel',
+    publishedAt: new Date(now - i * 60000).toISOString()
+  }));
+  for (let i = 0; i < all.length; i += 120)
+    await message({ type: 'CANDIDATES', source: 'subscriptions',
+      videos: all.slice(i, i + 120) });
+  await chrome.storage.local.set({ 'yt-recs-settings-v1': {
+    mode: 'recent', discoveryOnly: true, hideShorts: false
+  } });
+  const first = await message({ type: 'GET_RECOMMENDATIONS', recentLimit: 100 });
+  assert.equal(first.result.recentHasMore, true);
+  assert.ok(first.result.recentTotal >= 225);
+  assert.equal(first.result.recommendations.length, 100);
+  assert.deepEqual(first.result.recommendations.slice(0, 3).map(v => v.id),
+    ['r0000000000','r0000000001','r0000000002']);
+  const second = await message({ type: 'GET_RECOMMENDATIONS', recentLimit: 200 });
+  assert.equal(second.result.recommendations.length, 200);
+  assert.equal(second.result.recommendations[199].id, 'r0000000199');
+  const expanded = await message({ type: 'GET_RECOMMENDATIONS', recentLimit: 4000 });
+  assert.equal(expanded.result.recentHasMore, false);
+  assert.ok(expanded.result.recommendations.length >= 225);
+  const nonRecent = await message({ type: 'GET_RECOMMENDATIONS', recentLimit: 4000 });
+  assert.ok(nonRecent.result.counts.unseen >= 225);
+  await chrome.storage.local.set({ 'yt-recs-settings-v1': {} });
+});
