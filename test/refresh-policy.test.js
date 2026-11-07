@@ -62,5 +62,5 @@ test('rotation de-duplicates channels, enforces cap, and tolerates stale cursor'
   assert.equal(slice.start, 0);
   assert.equal(slice.batch.length, 40);
   assert.equal(selectSubscriptionRefreshBatch([], 40).nextChannelIndex, 0);
-  assert.equal(REFRESH_STALE_MS, 75000);
+  assert.equal(REFRESH_STALE_MS, 150000);
 });
