@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenize, cosine, preferenceProfile, relativeAgeDays, rankVideos, validVideoTitle, effectivePublishedAt } from '../lib/recommender.js';
+import { tokenize, cosine, preferenceProfile, relativeAgeDays, rankVideos, validVideoTitle, effectivePublishedAt, isConfirmedShort } from '../lib/recommender.js';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 function video(id, title, extra = {}) {
@@ -123,4 +123,37 @@ test('legacy publication timestamps equal to capture time are corrected without 
     publishedText: '4 hours ago', publishedAt: NOW - 4 * 3600000,
     firstSeenAt: NOW
   }), NOW - 4 * 3600000);
+});
+
+test('Shorts are hidden by default and restored immediately by toggling the ranking policy', () => {
+  const items = {
+    short: video('short', 'An interesting YouTube Short', {
+      isShort: true, sources: ['subscriptions']
+    }),
+    ordinary: video('ordinary', 'A short but regular documentary', {
+      durationSeconds: 52, sources: ['subscriptions']
+    })
+  };
+  assert.deepEqual(rankVideos(items, {}, NOW).map(v => v.id), ['ordinary']);
+  const visible = rankVideos(items, { hideShorts: false }, NOW).map(v => v.id);
+  assert.deepEqual(visible.sort(), ['ordinary', 'short']);
+  // Turning the setting off does not require deleting or reimporting candidates.
+  assert.equal(items.short.candidate, true);
+});
+test('Short detection uses explicit URL markers, not duration or a video title', () => {
+  assert.equal(isConfirmedShort({ url: 'https://www.youtube.com/shorts/abcdefghijk' }), true);
+  assert.equal(isConfirmedShort({ shortsUrl: '/shorts/abcdefghijk' }), true);
+  assert.equal(isConfirmedShort({ url: 'https://www.youtube.com/watch?v=abcdefghijk', durationSeconds: 20 }), false);
+  assert.equal(isConfirmedShort({ title: 'Short documentary', url: '/watch?v=abcdefghijk' }), false);
+  assert.equal(isConfirmedShort({ url: 'https://example.com/shorts/abcdefghijk' }), false);
+  assert.equal(isConfirmedShort({ url: '/shorts/abcdefghijkinvalid' }), false);
+});
+test('confirmed Shorts remain hidden even when include watched videos is enabled', () => {
+  const items = {
+    short: video('short', 'Previously watched short', {
+      isShort: true, watchedAt: NOW, sources: ['subscriptions']
+    }),
+    ordinary: video('ordinary', 'Ordinary presentation', { sources: ['subscriptions'] })
+  };
+  assert.deepEqual(rankVideos(items, { showSeen: true }, NOW).map(v => v.id), ['ordinary']);
 });
