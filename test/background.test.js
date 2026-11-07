@@ -69,7 +69,7 @@ globalThis.chrome = {
 // Simulate the official API with no external requests or credentials.
 globalThis.fetch = async (url, options) => {
   const parsed = new URL(url);
-  if (parsed.hostname === 'i.ytimg.com' && /^\\/vi\\/[A-Za-z0-9_-]{11}\\/oar2\\.jpg$/.test(parsed.pathname)) {
+  if (parsed.hostname === 'i.ytimg.com' && parsed.pathname.startsWith('/vi/') && parsed.pathname.endsWith('/oar2.jpg')) {
     const id = parsed.pathname.split('/')[2];
     const portrait = id === 'portrait123';
     const width = portrait ? 1080 : 1920;
