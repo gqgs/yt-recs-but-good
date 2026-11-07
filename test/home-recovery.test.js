@@ -74,3 +74,10 @@ test('Home can retry video duration enrichment without deleting candidates', () 
   assert.match(home, /'yt-recs-video-details-status-v1'/);
   assert.match(styles, /\.ytrbg-detail-status/);
 });
+
+test('duration recovery includes withheld portrait candidates and retries after upload sync', () => {
+  assert.match(home, /detailsCandidateIds = response.result.detailCandidates \|\| \[\]/);
+  assert.match(home, /requestVideoDetails\(false\)/);
+  assert.match(home, /result\?\.reason === 'upload-sync-running'/);
+  assert.match(home, /refreshChange\.newValue\.phase !== 'running'/);
+});
