@@ -44,4 +44,16 @@ test('classifier output includes bounded diagnostics for tuning', () => {
   assert.ok(item.score >= 0 && item.score <= 1);
   assert.equal(typeof item.features.brightnessGap, 'number');
   assert.equal(typeof item.features.edgeRatio, 'number');
+  assert.equal(typeof item.checks.panelEdges, 'boolean');
+  assert.equal(typeof item.checks.panelContrast, 'boolean');
+  assert.equal(typeof item.checks.sideBalance, 'boolean');
+  assert.equal(typeof item.checks.minimumScore, 'boolean');
+  assert.deepEqual(item.failedChecks, Object.keys(item.checks).filter(k => !item.checks[k]));
+});
+
+test('threshold alone never bypasses the three-panel safety gates', () => {
+  const result = classifyThumbnail(synthetic({ uniform: true }), { minScore: 0.3 });
+  assert.equal(result.format, 'landscape');
+  assert.ok(result.failedChecks.length > 0);
+  assert.equal(result.checks.panelEdges, false);
 });
