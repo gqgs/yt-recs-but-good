@@ -9,6 +9,8 @@ const KEY = 'yt-recs-state-v1';
 const SETTINGS_KEY = 'yt-recs-settings-v1';
 const API_SYNC_KEY = 'yt-recs-api-sync-v1';
 const REFRESH_KEY = 'yt-recs-candidate-refresh-v1';
+const REFRESH_STALE_MS = 75_000;
+const CHANNELS_PER_REFRESH = 40;
 const PAUSED_KEY = 'yt-recs-collection-paused-v1';
 const MAX_ITEMS = 4000;
 const MAX_EVENTS = 1500;
@@ -320,7 +322,8 @@ async function saveRefreshStatus(patch) {
 function refreshSummary(status, configured, paused, now = Date.now()) {
   if (paused) return 'Collection paused';
   if (!configured) return 'Connect Google API in the extension popup for new uploads';
-  if (status?.phase === 'running') return 'Checking new subscribed uploads…';
+  if (status?.phase === 'running') return status.message || 'Checking new subscribed uploads…';
+  if (status?.phase === 'interrupted') return 'Previous refresh interrupted · click Refresh uploads to retry';
   if (status?.phase === 'needs_auth') return 'Authorize YouTube API from the extension popup';
   if (status?.phase === 'error') return 'Refresh failed · ' + String(status.message || 'Try again').slice(0, 100);
   const age = formatRefreshAge(status?.lastSuccessAt || 0, now);
@@ -330,7 +333,16 @@ function refreshSummary(status, configured, paused, now = Date.now()) {
   return 'Never synced · authorize YouTube API to discover new uploads';
 }
 async function refreshDetails(paused = false) {
-  const status = (await chrome.storage.local.get(REFRESH_KEY))[REFRESH_KEY] || {};
+  const saved = (await chrome.storage.local.get(REFRESH_KEY))[REFRESH_KEY] || {};
+  const heartbeat = Number(saved.lastProgressAt || saved.lastAttemptAt || 0);
+  // MV3 workers can be terminated during a long request, leaving a persisted
+  // "running" status without any in-memory job to complete it.
+  const interrupted = saved.phase === 'running' && heartbeat > 0 &&
+    Date.now() - heartbeat > REFRESH_STALE_MS;
+  const status = interrupted ? {
+    ...saved, phase: 'interrupted',
+    message: 'Previous refresh stopped before completing. Click Refresh uploads to retry.'
+  } : saved;
   return { ...status, configured: configuredOAuth(), paused,
     label: refreshSummary(status, configuredOAuth(), paused) };
 }
@@ -344,19 +356,48 @@ async function performCandidateRefresh(interactive) {
     const token = await getGoogleAccessToken({ interactive });
     const subscriptions = await fetchSubscriptions(token);
     await importSubscriptions(subscriptions);
+
+    // Scan a bounded, rotating slice rather than up to 200 upload playlists
+    // in one fragile MV3 service-worker lifetime. Every successful hour
+    // advances through the subscription set.
+    const eligible = subscriptions.filter(s =>
+      /^UC[A-Za-z0-9_-]{22}$/.test(s.channelId)).slice(0, 200);
+    const saved = (await chrome.storage.local.get(REFRESH_KEY))[REFRESH_KEY] || {};
+    const previousCursor = Number(saved.nextChannelIndex);
+    const start = Number.isInteger(previousCursor) && previousCursor >= 0 &&
+      previousCursor < eligible.length ? previousCursor : 0;
+    const batch = eligible.slice(start, start + CHANNELS_PER_REFRESH);
     const newUploads = [];
-    const summary = await fetchUploads(token, subscriptions, {
-      maxChannels: 200, maxPerChannel: 5, includeStatistics: false,
-      onBatch: async videos => { newUploads.push(...videos); }
+    const summary = await fetchUploads(token, batch, {
+      maxChannels: CHANNELS_PER_REFRESH, maxPerChannel: 5,
+      includeStatistics: false,
+      onBatch: async (videos, processed, total) => {
+        newUploads.push(...videos);
+        if (processed % 8 === 0 || processed === total) {
+          await saveRefreshStatus({
+            phase: 'running',
+            message: 'Checking subscribed channels: ' +
+              (start + processed) + '/' + eligible.length,
+            lastProgressAt: Date.now()
+          });
+        }
+      }
     });
     const newlyFound = await importVideos('subscriptions', newUploads);
     const paused = (await chrome.storage.local.get(PAUSED_KEY))[PAUSED_KEY] === true;
     if (paused) return;
+    const nextChannelIndex = start + batch.length >= eligible.length
+      ? 0 : start + batch.length;
     await saveRefreshStatus({
       phase: 'ready',
       message: 'Checked ' + summary.checked + ' subscribed channels' +
-        (summary.unavailable ? '; skipped ' + summary.unavailable + ' unavailable uploads playlists' : ''),
-      lastSuccessAt: Date.now(), channels: summary.checked,
+        (summary.unavailable ? '; skipped ' + summary.unavailable +
+          ' unavailable uploads playlists' : '') +
+        (eligible.length > batch.length ? ' (rotating through ' +
+          eligible.length + ' subscribed channels)' : ''),
+      lastSuccessAt: Date.now(),
+      lastProgressAt: Date.now(),
+      nextChannelIndex, channels: summary.checked,
       unavailable: summary.unavailable, newVideos: newlyFound
     });
   } catch (error) {
@@ -365,7 +406,8 @@ async function performCandidateRefresh(interactive) {
     const message = String(error?.message || error);
     await saveRefreshStatus({
       phase: !interactive && /auth|sign.?in|token|consent|not granted|login_required|interaction_required|access_denied|silent/i.test(message)
-        ? 'needs_auth' : 'error', message: message.slice(0, 180)
+        ? 'needs_auth' : 'error',
+      message: message.slice(0, 180)
     });
   }
 }
@@ -392,8 +434,8 @@ function startCandidateRefresh({ force = false, interactive = false } = {}) {
       return { started: false, reason: 'needs_setup' };
     }
     await saveRefreshStatus({
-      phase: 'running', message: 'Checking subscribed uploads',
-      lastAttemptAt: Date.now()
+      phase: 'running', message: 'Connecting to YouTube API…',
+      lastAttemptAt: Date.now(), lastProgressAt: Date.now()
     });
     candidateRefreshPromise = performCandidateRefresh(interactive)
       .finally(() => { candidateRefreshPromise = null; });
