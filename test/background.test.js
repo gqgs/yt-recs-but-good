@@ -538,3 +538,19 @@ test('duration metadata is preserved and protects long-form portrait candidates'
   assert.equal(candidate.feedback, undefined);
   await message({ type: 'MARK_SEEN', id });
 });
+
+test('duration enrichment candidates include portrait videos excluded by ranking', async () => {
+  const id = 'hiddenlong1';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [{
+    id, title: 'Vertical talk wrongly identified as portrait short', channel: 'Talks'
+  }] });
+  await message({ type: 'PROBE_SHORTS_FORMAT', ids: [id] });
+  const view = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(view.result.recommendations.some(v => v.id === id), true);
+  assert.equal(view.result.detailCandidates.includes(id), true);
+  const details = await message({ type: 'REFRESH_VIDEO_DETAILS', ids: [id], force: true });
+  assert.equal(details.ok, true);
+  const candidate = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(candidate.durationSeconds, 1431);
+  await message({ type: 'MARK_SEEN', id });
+});
