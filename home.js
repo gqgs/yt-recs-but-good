@@ -216,7 +216,8 @@
     const formatStatus = node('p', 'ytrbg-format-status',
       check ? 'Format check: ' + (video.shortsFormat || 'unknown') +
         ' · ' + check.variant + (check.status ? ' · HTTP ' + check.status : '') +
-        (check.width && check.height ? ' · ' + check.width + '×' + check.height : '') :
+        (check.width && check.height ? ' · ' + check.width + '×' + check.height : '') +
+        (check.reason && check.reason !== 'ok' ? ' · ' + check.reason : '') :
         'Format check: not yet completed');
     explain.append(formatStatus);
     // Manual format correction is not a dislike and does not affect the
