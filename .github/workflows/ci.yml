@@ -15,5 +15,3 @@ jobs:
           node-version: '22'
       - name: Validate extension JavaScript and test recommender
         run: npm run check
-      - name: Probe five known Shorts thumbnails (diagnostic, temporary)
-        run: node scripts/diagnose-shorts.mjs EZy9KqeQKrA HlhOrCrn7vk zzITiIxxD8c -prSdejMkaI uo5VU-KtUZk
