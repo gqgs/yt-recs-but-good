@@ -22,6 +22,7 @@
   let scrollObserver = null;
   let formatProbeInFlight = false;
   let formatProbeCooldownUntil = 0;
+  let formatProbeRetryTimer = null;
   let pendingFormatCount = 0;
 
 
@@ -155,6 +156,17 @@
     await send(data);
     await refresh();
   }
+  function deferFormatProbe(ms) {
+    formatProbeCooldownUntil = Date.now() + ms;
+    clearTimeout(formatProbeRetryTimer);
+    // One-shot retry, not recurring polling. The worker continues to own the
+    // actual session request budget and cached classifications.
+    formatProbeRetryTimer = setTimeout(() => {
+      formatProbeRetryTimer = null;
+      if (enabled && onHome()) scheduleRefresh();
+    }, ms + 200);
+  }
+
   function probeFormats(pending) {
     if (settings.hideShorts === false || !pending.length || !enabled || !onHome() ||
         formatProbeInFlight || Date.now() < formatProbeCooldownUntil) return;
@@ -164,17 +176,17 @@
     send({ type: 'PROBE_SHORTS_FORMAT', ids: pending.slice(0, 12).map(v => v.id) })
       .then(({ result }) => {
         if (result?.reason === 'rate-limited') {
-          formatProbeCooldownUntil = Date.now() + 10 * 60_000;
+          deferFormatProbe(10 * 60_000);
         } else if (!result?.started) {
           // A worker may already be checking these IDs; avoid rapid retries
           // and let its eventual storage update trigger the next refresh.
-          formatProbeCooldownUntil = Date.now() + 3000;
+          deferFormatProbe(3000);
         }
       })
       .catch(() => {
         // Format checks are optional and must not prevent loading the page.
         // Keep uncertain videos withheld and retry on the next Home visit.
-        formatProbeCooldownUntil = Date.now() + 30_000;
+        deferFormatProbe(30_000);
       })
       .finally(() => {
         formatProbeInFlight = false;
@@ -262,6 +274,7 @@
     gridElement = null;
     rankedVideos = recommendations;
     pendingFormatCount = pendingFormats.length;
+    const checkingPaused = pendingFormatCount && Date.now() < formatProbeCooldownUntil;
     const targetCount = Math.min(
       Math.max(PAGE_SIZE, visibleCount), rankedVideos.length);
     visibleCount = 0;
@@ -288,11 +301,14 @@
     if (!recommendations.length) {
       const empty = node('section', 'ytrbg-empty');
       empty.append(node('h2', '', paused ? 'Collection paused after reset' :
-        pendingFormatCount ? 'Checking video formats' : 'No recommendations yet'),
+        pendingFormatCount ? (checkingPaused ? 'Format checks temporarily paused' :
+          'Checking video formats') : 'No recommendations yet'),
         node('p', '', paused
           ? 'Your data was deleted successfully. Collection is still paused, so visiting Likes or Subscriptions cannot index videos. Resume collection to begin again.'
           : pendingFormatCount
-          ? 'Unclassified videos are held back until their format check completes. They will not briefly appear and disappear as Shorts are detected.'
+          ? (checkingPaused
+            ? 'Some formats have not been verified yet. The extension will retry automatically; unverified videos stay hidden rather than flashing on screen.'
+            : 'Unclassified videos are held back until their format check completes. They will not briefly appear and disappear as Shorts are detected.')
           : settings.discoveryOnly !== false
           ? 'Discovery mode excludes candidates seen only on YouTube Home or Related. Visit subscriptions, channels, or searches to populate the independent candidate pool, or import subscriptions through the API.'
           : 'Collect more candidates by visiting subscriptions or performing an optional API import. Previously saved ads and broken titles are filtered.'));
