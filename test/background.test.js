@@ -102,6 +102,29 @@ function message(request) {
   });
 }
 
+test('Home and popup share hide-Shorts preference and preserve cached Shorts', async () => {
+  const id = 'shortid1234';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'A genuine YouTube Short', isShort: true, channel: 'Channel A' },
+    { id: 'regular1234', title: 'A short but normal video', channel: 'Channel B' }
+  ] });
+  let home = await message({ type: 'GET_RECOMMENDATIONS' });
+  let popup = await message({ type: 'GET_POPUP_DATA' });
+  assert.deepEqual(home.result.recommendations.map(v => v.id), ['regular1234']);
+  assert.deepEqual(popup.result.recommendations.map(v => v.id), ['regular1234']);
+  await chrome.storage.local.set({ 'yt-recs-settings-v1': { hideShorts: false } });
+  home = await message({ type: 'GET_RECOMMENDATIONS' });
+  popup = await message({ type: 'GET_POPUP_DATA' });
+  assert.equal(home.result.recommendations.some(v => v.id === id), true);
+  assert.equal(popup.result.recommendations.some(v => v.id === id), true);
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'A genuine YouTube Short', channel: 'Channel A' }
+  ] });
+  const state = (await message({ type: 'GET_STATE' })).state;
+  assert.equal(state.items[id].isShort, true);
+  await chrome.storage.local.set({ 'yt-recs-settings-v1': {} });
+});
+
 test('records candidates, ranks on worker, and applies explicit feedback', async () => {
   await message({ type: 'CANDIDATES', source: 'liked', videos: [{
     id: VID_A, title: 'Linux performance kernel', channel: 'Linux Lab', channelId: CHANNEL
