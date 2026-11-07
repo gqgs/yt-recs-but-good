@@ -252,7 +252,7 @@
     const markedShort = video.shortOverride === undefined
       ? Boolean(video.isShort ||
         (video.shortsFormat === 'portrait' &&
-         video.shortsProbeSource === 'three-panel-image-v1'))
+         video.shortsProbeSource === 'three-panel-image-v2'))
       : video.shortOverride;
     explain.append(button(markedShort ? 'Not a Short' : 'Mark as Short',
       'ytrbg-short-label', () => {
