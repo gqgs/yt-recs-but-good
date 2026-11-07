@@ -12,6 +12,7 @@
   let mountTimer = null;
   let requestId = 0;
   let refreshTimer = null;
+  let staleStatusTimer = null;
   const PAGE_SIZE = 12;
   let visibleCount = 0;
   let rankedVideos = [];
@@ -66,6 +67,8 @@
     await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
   }
   function cleanUp() {
+    clearTimeout(staleStatusTimer);
+    staleStatusTimer = null;
     scrollObserver?.disconnect();
     scrollObserver = null;
     gridElement = null;
@@ -200,6 +203,20 @@
   }
   function render({ recommendations, counts, paused = false, refresh = {} }) {
     if (!ensureRoot() || !enabled) return;
+    clearTimeout(staleStatusTimer);
+    staleStatusTimer = null;
+    // Update the status when an in-flight operation should have expired, even
+    // if Brave killed the worker and no more storage events are emitted.
+    if (refresh.phase === 'running') {
+      const heartbeat = Number(refresh.lastProgressAt || refresh.lastAttemptAt || 0);
+      if (heartbeat > 0) {
+        const remaining = 150000 - (Date.now() - heartbeat);
+        staleStatusTimer = setTimeout(() => {
+          staleStatusTimer = null;
+          scheduleRefresh();
+        }, Math.max(500, remaining + 500));
+      }
+    }
     scrollObserver?.disconnect();
     scrollObserver = null;
     gridElement = null;
