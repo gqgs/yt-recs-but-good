@@ -225,3 +225,40 @@ test('long-form portrait videos are never filtered by their vertical thumbnails'
   items.first.shortOverride = true;
   assert.deepEqual(rankVideos(items, {}, NOW).map(v => v.id), ['second']);
 });
+
+test('Recent is strictly chronological irrespective of affinity, diversity and channel quotas', () => {
+  const items = {
+    newer: video('newer', 'Unfamiliar film', {
+      publishedAt: NOW - 30 * 60_000, channel: 'Channel A',
+      sources: ['subscriptions']
+    }),
+    middle: video('middle', 'My favorite artist', {
+      publishedAt: NOW - 2 * 3600_000, channel: 'Channel A',
+      sources: ['subscriptions']
+    }),
+    oldest: video('oldest', 'Another favorite album', {
+      publishedAt: NOW - 16 * 3600_000, channel: 'Channel A',
+      sources: ['subscriptions']
+    }),
+    seed: video('seed', 'My favorite artist another favorite album', {
+      feedback: 'like', candidate: false, feedbackAt: NOW
+    })
+  };
+  const options = { mode: 'recent', diversity: 100, exploration: 0,
+    discoveryOnly: false, limit: 3 };
+  assert.deepEqual(rankVideos(items, options, NOW).map(v => v.id),
+    ['newer', 'middle', 'oldest']);
+});
+
+test('Recent sorts by publish timestamp rather than recency of import/last seen', () => {
+  const items = {
+    a: video('a', 'Newly imported old talk', {
+      publishedAt: NOW - 7 * 86400_000, lastSeenAt: NOW
+    }),
+    b: video('b', 'Recent upload', {
+      publishedAt: NOW - 3600_000, lastSeenAt: NOW - 5 * 86400_000
+    })
+  };
+  assert.deepEqual(rankVideos(items, { mode: 'recent', discoveryOnly: false }, NOW)
+    .map(v => v.id), ['b', 'a']);
+});
