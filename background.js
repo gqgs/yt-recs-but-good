@@ -2,6 +2,7 @@ import { relativeAgeDays, rankVideos } from './lib/recommender.js';
 import { formatMetadataLine } from './lib/video-metadata.js';
 import { isKnownLongForm } from './lib/video-duration.js';
 import { fetchLikedVideos, fetchSubscriptions, fetchUploads } from './lib/api-sync.js';
+import { fetchVideoDetails, needsVideoDetails, MAX_DETAILS_BATCH } from './lib/video-details.js';
 import { normalizeTtlMinutes, shouldRefresh, formatRefreshAge,
   selectSubscriptionRefreshBatch, CHANNELS_PER_REFRESH, REFRESH_STALE_MS } from './lib/refresh-policy.js';
 import { getGoogleAccessToken, clearGoogleAccessToken, configuredGoogleClientId } from './lib/google-auth.js';
@@ -13,6 +14,7 @@ const KEY = 'yt-recs-state-v1';
 const SETTINGS_KEY = 'yt-recs-settings-v1';
 const API_SYNC_KEY = 'yt-recs-api-sync-v1';
 const REFRESH_KEY = 'yt-recs-candidate-refresh-v1';
+const DETAILS_KEY = 'yt-recs-video-details-status-v1';
 const PROBE_BUDGET_KEY = 'yt-recs-shorts-probe-budget-v1';
 const MAX_SHORTS_PROBES_PER_WINDOW = 48;
 
@@ -306,6 +308,84 @@ async function probeUnclassifiedCandidates(candidateIds) {
 }
 
 let apiSyncPromise = null;
+// Enrich video details for already-collected candidates. Unlike the bounded
+// upload discoverer, this does not need to revisit subscription channels.
+let detailsRefreshPromise = null;
+async function saveDetailsStatus(patch) {
+  const prev = (await chrome.storage.local.get(DETAILS_KEY))[DETAILS_KEY] || {};
+  const next = { ...prev, ...patch, updatedAt: Date.now() };
+  await chrome.storage.local.set({ [DETAILS_KEY]: next });
+  return next;
+}
+async function runDetailsRefresh(ids, force = false) {
+  const state = await readState();
+  const paused = (await chrome.storage.local.get(PAUSED_KEY))[PAUSED_KEY] === true;
+  if (paused) return { started: false, reason: 'paused' };
+  const now = Date.now();
+  const wanted = [...new Set(ids)].filter(validId).slice(0, 100);
+  const eligible = wanted.map(id => state.items[id])
+    .filter(v => needsVideoDetails(v, now, force))
+    .slice(0, MAX_DETAILS_BATCH);
+  if (!eligible.length) return { started: false, reason: 'up-to-date' };
+  const targetIds = eligible.map(v => v.id);
+  await saveDetailsStatus({ phase: 'running', message: 'Fetching video durations and views…',
+    requested: targetIds.length });
+  try {
+    // Never trigger Google login automatically as a side effect of opening
+    // YouTube Home. Manual full API Sync remains the interactive auth flow.
+    const token = await getGoogleAccessToken({ interactive: false });
+    const response = await fetchVideoDetails(token, targetIds);
+    let durationUpdates = 0, viewUpdates = 0;
+    await enqueueWrite(db => {
+      for (const id of response.ids) {
+        const video = db.items[id];
+        if (!video) continue;
+        video.detailsAttemptedAt = Date.now();
+        const data = response.results.get(id);
+        if (!data) continue;
+        if (Number.isSafeInteger(data.durationSeconds) && data.durationSeconds > 0) {
+          video.durationSeconds = data.durationSeconds;
+          durationUpdates++;
+        }
+        if (data.viewCount !== null && data.viewCount !== undefined) {
+          video.viewCount = data.viewCount;
+          viewUpdates++;
+        }
+      }
+    });
+    await saveDetailsStatus({
+      phase: 'ready', message: 'Video details refreshed',
+      requested: response.ids.length, durationUpdates, viewUpdates
+    });
+    return { started: true, requested: response.ids.length, durationUpdates, viewUpdates };
+  } catch (error) {
+    // A failed supplemental lookup should never erase recommendation records.
+    // Record the attempt to prevent a failing request on each Home rerender.
+    try {
+      await enqueueWrite(db => {
+        for (const id of targetIds) if (db.items[id])
+          db.items[id].detailsAttemptedAt = Date.now();
+      });
+    } catch { /* Collection paused while the request was in flight. */ }
+    const message = String(error?.message || error).slice(0, 180);
+    await saveDetailsStatus({ phase: 'error', message,
+      requested: targetIds.length, durationUpdates: 0, viewUpdates: 0 });
+    return { started: false, reason: 'api-error', error: message };
+  }
+}
+function startDetailsRefresh(ids, force = false) {
+  if (detailsRefreshPromise) return Promise.resolve({ started: false, reason: 'running' });
+  if (apiSyncPromise || candidateRefreshPromise) return Promise.resolve({
+    started: false, reason: 'upload-sync-running'
+  });
+  const task = runDetailsRefresh(ids, force);
+  detailsRefreshPromise = task;
+  void task.finally(() => {
+    if (detailsRefreshPromise === task) detailsRefreshPromise = null;
+  });
+  return task;
+}
+
 async function syncStatus(phase, message, counts = {}) {
   await chrome.storage.local.set({ [API_SYNC_KEY]: {
     phase, message, counts, updatedAt: Date.now()
@@ -376,7 +456,10 @@ async function runApiSync() {
       }
     });
     const message = 'Google import complete: checked ' + imported.checked +
-      ' channels, skipped ' + imported.unavailable + ' unavailable uploads playlists.';
+      ' channels, skipped ' + imported.unavailable + ' unavailable uploads playlists.' +
+      ' Durations: ' + imported.metadata.durations + '/' + imported.videos + '.' +
+      (imported.metadata.failures ? ' Metadata errors: ' +
+      imported.metadata.failures + ' (' + imported.metadata.lastError + ').' : '');
     await syncStatus('complete', message, {
       likes: likes.length, subscriptions: subs.length, uploads: imported.videos,
       channelsScanned: imported.checked, unavailable: imported.unavailable
@@ -409,7 +492,8 @@ function refreshSummary(status, configured, paused, now = Date.now()) {
   const age = formatRefreshAge(status?.lastSuccessAt || 0, now);
   if (status?.lastSuccessAt) return age +
     (Number.isFinite(status.newVideos) ? ' · ' + status.newVideos + ' newly found' : '') +
-    (status.unavailable ? ' · ' + status.unavailable + ' unavailable playlists skipped' : '');
+    (status.unavailable ? ' · ' + status.unavailable + ' unavailable playlists skipped' : '') +
+    (status.metadata?.failures ? ' · ' + status.metadata.failures + ' metadata failures' : '');
   return 'Never synced · authorize YouTube API to discover new uploads';
 }
 async function refreshDetails(paused = false) {
@@ -470,7 +554,11 @@ async function performCandidateRefresh(interactive) {
         (summary.unavailable ? '; skipped ' + summary.unavailable +
           ' unavailable uploads playlists' : '') +
         (total > batch.length ? ' (rotating through ' +
-          total + ' subscribed channels)' : ''),
+          total + ' subscribed channels)' : '') +
+        ' · durations: ' + summary.metadata.durations + '/' + summary.videos +
+        (summary.metadata.failures ? ' · metadata request failures: ' +
+          summary.metadata.failures + ' (' + summary.metadata.lastError + ')' : ''),
+      metadata: summary.metadata,
       lastSuccessAt: Date.now(),
       lastProgressAt: Date.now(),
       nextChannelIndex, channels: summary.checked,
@@ -530,6 +618,13 @@ function startCandidateRefresh({ force = false, interactive = false } = {}) {
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (!msg || typeof msg.type !== 'string') return false;
+  if (msg.type === 'REFRESH_VIDEO_DETAILS') {
+    const ids = Array.isArray(msg.ids) ? msg.ids.filter(validId).slice(0, 100) : [];
+    startDetailsRefresh(ids, msg.force === true)
+      .then(result => reply({ ok: true, result }),
+        error => reply({ ok: false, error: String(error) }));
+    return true;
+  }
   if (msg.type === 'PROBE_SHORTS_FORMAT') {
     const ids = Array.isArray(msg.ids) ? msg.ids.filter(validId).slice(0, 100) : [];
     probeUnclassifiedCandidates(ids).then(result => reply({ ok: true, result }),
@@ -588,6 +683,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       }));
       return { counts: { liked, candidates, unseen }, recommendations,
         paused: stored[PAUSED_KEY] === true,
+        detailStatus: (await chrome.storage.local.get(DETAILS_KEY))[DETAILS_KEY] || {},
         refresh: await refreshDetails(stored[PAUSED_KEY] === true) };
     }).then(result => reply({ ok: true, result }),
       error => reply({ ok: false, error: String(error) }));
@@ -622,6 +718,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         ...video, metadataLine: formatMetadataLine(video)
       })),
         paused, refresh: await refreshDetails(paused),
+        detailStatus: (await chrome.storage.local.get(DETAILS_KEY))[DETAILS_KEY] || {},
         counts: { likes, unseen, candidates: items.filter(v => v.candidate).length } };
     }).then(result => reply({ ok: true, result }),
       e => reply({ ok: false, error: String(e) }));
@@ -635,7 +732,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         // Persist the pause before removing the state so a Home-page MutationObserver
         // cannot immediately re-import candidates while the user clears them.
         await chrome.storage.local.set({ [PAUSED_KEY]: true });
-        await chrome.storage.local.remove([KEY, REFRESH_KEY]);
+        await chrome.storage.local.remove([KEY, REFRESH_KEY, DETAILS_KEY]);
         await chrome.storage.session.remove(PROBE_BUDGET_KEY);
         await clearGoogleAccessToken();
         return { reset: true, paused: true };
@@ -657,7 +754,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       }
       await saveState(state);
       // Clearing candidate records invalidates the previous refresh TTL.
-      await chrome.storage.local.remove(REFRESH_KEY);
+      await chrome.storage.local.remove([REFRESH_KEY, DETAILS_KEY]);
       return { removed, preservedPreferences: true };
     });
     queue = job.catch(() => {});
