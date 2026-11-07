@@ -204,6 +204,12 @@
     img.loading = 'lazy';
     img.referrerPolicy = 'no-referrer';
     anchor.append(img);
+    const durationLabel = globalThis.YTRBGShortsVisibility.formatDuration(video.durationSeconds);
+    if (durationLabel) {
+      const duration = node('span', 'ytrbg-duration', durationLabel);
+      duration.setAttribute('aria-label', 'Duration ' + durationLabel);
+      anchor.append(duration);
+    }
     const title = link(video.title, video.url, 'ytrbg-title');
     title.title = video.title;
     const channel = node('div', 'ytrbg-channel', video.channel || 'Channel unavailable');
