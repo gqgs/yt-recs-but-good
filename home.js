@@ -291,7 +291,7 @@
     updatePagination();
   }
   function render({ recommendations, counts, paused = false, refresh = {},
-    detailStatus = {}, pendingFormats = [] }) {
+    detailStatus = {}, pendingFormats = [], heldBack = 0 }) {
     if (!ensureRoot() || !enabled) return;
     clearTimeout(staleStatusTimer);
     staleStatusTimer = null;
@@ -349,7 +349,8 @@
     toolbar.append(node('div', 'ytrbg-stats',
       counts.likes + ' likes · ' + counts.unseen + ' unseen candidates · ' +
       (settings.discoveryOnly !== false ? 'Discovery sources only' : 'All sources') +
-      (pendingFormatCount ? ' · ' + pendingFormatCount + ' checking format' : '')));
+      (pendingFormatCount ? ' · ' + pendingFormatCount + ' checking format' : '') +
+      (heldBack ? ' · ' + heldBack + ' older uploads held until sorted' : '')));
     children.push(toolbar);
     if (!recommendations.length) {
       const empty = node('section', 'ytrbg-empty');
@@ -431,10 +432,12 @@
     try {
       const response = await send({ type: 'GET_RECOMMENDATIONS' });
       if (id !== requestId || !enabled || !onHome()) return;
-      const { ready, pending } = globalThis.YTRBGShortsVisibility.splitCandidates(
-        response.result.recommendations, settings.hideShorts !== false);
+      const { ready, pending, heldBack } = globalThis.YTRBGShortsVisibility.splitCandidates(
+        response.result.recommendations, settings.hideShorts !== false,
+        Date.now(), settings.mode);
       detailsCandidateIds = response.result.detailCandidates || [];
-      render({ ...response.result, recommendations: ready, pendingFormats: pending });
+      render({ ...response.result, recommendations: ready, pendingFormats: pending,
+        heldBack });
       // Enrich cached API-only items, including portrait videos currently
       // withheld by the Shorts heuristic but actually long-form.
       requestVideoDetails(false);
