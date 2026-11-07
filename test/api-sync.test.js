@@ -71,6 +71,8 @@ test('retrieves subscriptions and recent uploads in bounded batches', async () =
   assert.equal(batches[0][0].id, VID);
   assert.equal(batches[0][0].viewCount, '243210');
   assert.equal(batches[0][0].durationSeconds, 1431);
+  assert.equal(result.metadata.durations, 1);
+  assert.equal(result.metadata.failures, 0);
 });
 test('reports API failures without displaying credentials', async () => {
   await assert.rejects(requestYouTube('videos', {}, 'secret-token', async () => ({
@@ -104,6 +106,8 @@ test('missing statistics do not prevent subscribed upload import', async () => {
   });
   assert.equal(result.videos, 1);
   assert.equal(videos[0].viewCount, undefined);
+  assert.equal(result.metadata.failures, 1);
+  assert.match(result.metadata.lastError, /Not accessible/);
 });
 
 test('lightweight automatic upload checks request Shorts metadata but not view statistics', async () => {
