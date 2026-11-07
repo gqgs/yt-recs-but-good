@@ -11,12 +11,21 @@ const { extractCard, videoId, validTitle } = global.YTRBGCardExtractor;
 function el(text, attrs = {}) {
   return { textContent: text, href: attrs.href, getAttribute: key => attrs[key] || null };
 }
-function fakeCard({ title, titleAttrs = {}, watchHref, promoted = false, badge = false, channel = 'Linux Foundation', metadata = [] }) {
+function fakeCard({ title, titleAttrs = {}, watchHref, shortsHref = '',
+  shortsContainer = false, promoted = false, badge = false,
+  channel = 'Linux Foundation', metadata = [] }) {
   const titleNode = title === undefined ? null : el(title, titleAttrs);
   const watchNode = el('Watch', { href: watchHref || '/watch?v=abcdefghijk' });
   const channelNode = el(channel, { href: '/@LinuxFoundation' });
   return {
-    closest() { return promoted ? {} : null; },
+    closest(selector) {
+      if (selector.includes('ad-slot-renderer')) return promoted ? {} : null;
+      if (selector.includes('rich-grid-slim-media')) return shortsContainer ? {} : null;
+      return null;
+    },
+    matches(selector) {
+      return shortsContainer && selector.includes('rich-grid-slim-media');
+    },
     querySelector(selector) {
       if (selector.includes('ad-badge-renderer')) return badge ? {} : null;
       if (selector === 'a#video-title-link') return titleNode;
@@ -25,7 +34,11 @@ function fakeCard({ title, titleAttrs = {}, watchHref, promoted = false, badge =
       if (selector.includes('channel-name') || selector.includes('metadata-text a')) return channelNode;
       return null;
     },
-    querySelectorAll() { return metadata.map(text => el(text)); }
+    querySelectorAll(selector) {
+      if (selector === 'a[href*="/shorts/"]')
+        return shortsHref ? [el('', { href: shortsHref })] : [];
+      return metadata.map(text => el(text));
+    }
   };
 }
 
@@ -128,4 +141,34 @@ test('does not treat title text as view metadata', () => {
   const result = extractCard(card);
   assert.equal(result.viewCountText, '');
   assert.equal(result.publishedText, '');
+});
+
+test('marks explicit Shorts links and Shorts-only cards without relying on duration', () => {
+  const short = extractCard(fakeCard({
+    title: 'An original short clip',
+    titleAttrs: { href: '/shorts/abcdefghijk' },
+    shortsHref: '/shorts/abcdefghijk'
+  }));
+  assert.equal(short.id, 'abcdefghijk');
+  assert.equal(short.isShort, true);
+  const shortsContainer = extractCard(fakeCard({
+    title: 'Shorts-only layout',
+    shortsContainer: true,
+    titleAttrs: { href: '/watch?v=abcdefghijk' }
+  }));
+  assert.equal(shortsContainer.isShort, true);
+  const ordinary = extractCard(fakeCard({
+    title: 'One minute mathematical animation',
+    titleAttrs: { href: '/watch?v=abcdefghijk' },
+    metadata: ['1 minute', '100 views']
+  }));
+  assert.equal(ordinary.isShort, false);
+});
+test('does not mark a video as Short because an unrelated video has a Shorts link', () => {
+  const card = extractCard(fakeCard({
+    title: 'Full lecture',
+    titleAttrs: { href: '/watch?v=abcdefghijk' },
+    shortsHref: '/shorts/lmnopqrstuv'
+  }));
+  assert.equal(card.isShort, false);
 });
