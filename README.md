@@ -259,7 +259,7 @@ requests, and a safeguard of **300 per 10 minutes**. Images are never sent
 to any model or external classifier; pixels are processed locally.
 
 Successful classifications are cached for **30 days**, inconclusive results
-for **six hours**. The new `three-panel-image-v1` version key invalidates
+for **six hours**. The new `three-panel-image-v2` version key invalidates
 older oEmbed/CDN classifications without deleting your video records, likes,
 manual labels, or viewing history. Existing duration metadata remains valid.
 
