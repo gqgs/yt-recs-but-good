@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenize, cosine, preferenceProfile, relativeAgeDays, rankVideos, validVideoTitle, effectivePublishedAt, isConfirmedShort } from '../lib/recommender.js';
+import { tokenize, cosine, preferenceProfile, relativeAgeDays, rankVideos, validVideoTitle, effectivePublishedAt, isConfirmedShort, recentFeedPage, eligibleForRecommendations } from '../lib/recommender.js';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 function video(id, title, extra = {}) {
@@ -261,4 +261,51 @@ test('Recent sorts by publish timestamp rather than recency of import/last seen'
   };
   assert.deepEqual(rankVideos(items, { mode: 'recent', discoveryOnly: false }, NOW)
     .map(v => v.id), ['b', 'a']);
+});
+
+test('Recent can expand beyond 100 results while retaining exact chronological ordering', () => {
+  const records = Object.fromEntries(Array.from({ length: 250 }, (_, i) => {
+    const id = 'v' + String(i).padStart(10, '0');
+    return [id, video(id, 'Video from subscribed channel ' + i, {
+      sources: ['subscriptions'], publishedAt: NOW - i * 60000
+    })];
+  }));
+  const page1 = recentFeedPage(records, { mode: 'recent', limit: 100 }, NOW);
+  assert.equal(page1.totalEligible, 250);
+  assert.equal(page1.recommendations.length, 100);
+  assert.equal(page1.hasMore, true);
+  assert.equal(page1.recommendations[0].id, 'v0000000000');
+  assert.equal(page1.recommendations.at(-1).id, 'v0000000099');
+  const page2 = recentFeedPage(records, { mode: 'recent', limit: 200 }, NOW);
+  assert.equal(page2.recommendations.length, 200);
+  assert.equal(page2.recommendations.at(-1).id, 'v0000000199');
+  assert.equal(page2.hasMore, true);
+  const all = recentFeedPage(records, { mode: 'recent', limit: 300 }, NOW);
+  assert.equal(all.recommendations.length, 250);
+  assert.equal(all.hasMore, false);
+  assert.equal(new Set(all.recommendations.map(v => v.id)).size, 250);
+});
+
+test('Recent eligible count excludes watched and confirmed Shorts but includes unclassified', () => {
+  const records = {
+    normal: video('normal', 'Ordinary video', {
+      sources: ['subscriptions'], publishedAt: NOW
+    }),
+    uncertain: video('uncertain', 'Unclassified upload', {
+      sources: ['subscriptions'], publishedAt: NOW - 10_000
+    }),
+    short: video('short', 'Known Short', {
+      sources: ['subscriptions'], isShort: true
+    }),
+    watched: video('watched', 'Already watched', {
+      sources: ['subscriptions'], watchedAt: NOW
+    }),
+    home: video('home', 'Home only recommendation', {
+      sources: ['home']
+    })
+  };
+  assert.equal(eligibleForRecommendations(records.uncertain), true);
+  const page = recentFeedPage(records, { mode: 'recent' }, NOW);
+  assert.equal(page.totalEligible, 2);
+  assert.deepEqual(page.recommendations.map(v => v.id), ['normal', 'uncertain']);
 });
