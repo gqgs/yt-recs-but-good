@@ -31,7 +31,8 @@ in your browser; no images are uploaded or sent to Google.</p>
 <button id="run">Evaluate labeled images</button>
 <p id="status" role="status"></p>
 <div id="metrics"></div>
-<table><thead><tr><th>Image</th><th>Truth</th><th>Prediction</th><th>Score</th><th>Panel edges</th><th>Brightness gap</th><th>Thumbnail</th></tr></thead>
+<p id="class-warning" role="status" style="color:#e3bd7e"></p>
+<table><thead><tr><th>Image</th><th>Truth</th><th>Prediction</th><th>Score</th><th>Failed checks</th><th>Panel edges</th><th>Brightness gap</th><th>Thumbnail</th></tr></thead>
 <tbody id="items"></tbody></table>
 <script type="module">
 import { classifyThumbnail, SAMPLE_WIDTH, SAMPLE_HEIGHT } from '../lib/thumbnail-classifier.js';
@@ -58,6 +59,16 @@ function updateMetrics() {
     ...entry, prediction: classifyThumbnail(entry.image, { minScore: cutoff })
   }));
   const matrix = { tp:0, tn:0, fp:0, fn:0 };
+  const positiveCount = scored.filter(v => v.label === 'shorts').length;
+  const negativeCount = scored.length - positiveCount;
+  $('class-warning').textContent = !positiveCount || !negativeCount
+    ? 'Warning: only one class was loaded (' + positiveCount + ' Shorts, ' +
+      negativeCount + ' normal). Accuracy and precision cannot establish how ' +
+      'often the classifier mistakenly hides normal videos. Select the common ' +
+      'parent directory containing BOTH shorts/ and normal/.'
+    : 'Dataset: ' + positiveCount + ' Shorts and ' + negativeCount +
+      ' normal videos. Inspect false positives and false negatives before tuning.';
+
   for (const v of scored) {
     const actual = v.label === 'shorts', predicted = v.prediction.format === 'portrait';
     if (actual && predicted) matrix.tp++;
@@ -68,6 +79,7 @@ function updateMetrics() {
   const divide = (n,d) => d ? (100*n/d).toFixed(1)+'%' : 'n/a';
   $('metrics').replaceChildren(
     metric('Samples', scored.length),
+    metric('Shorts / normal', positiveCount + ' / ' + negativeCount),
     metric('TP / TN',matrix.tp+' / '+matrix.tn),
     metric('FP / FN',matrix.fp+' / '+matrix.fn),
     metric('Precision',divide(matrix.tp,matrix.tp+matrix.fp)),
@@ -86,6 +98,7 @@ function updateMetrics() {
     const error=predicted!==v.label;
     for (const text of [
       v.file.name, v.label, predicted, String(v.prediction.score),
+      (v.prediction.failedChecks || []).join(', ') || 'passed',
       String(v.prediction.features?.edgeRatio ?? ''),
       String(v.prediction.features?.brightnessGap ?? '')
     ]) {
