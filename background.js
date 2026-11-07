@@ -1,5 +1,6 @@
 import { relativeAgeDays, rankVideos } from './lib/recommender.js';
 import { formatMetadataLine } from './lib/video-metadata.js';
+import { isKnownLongForm } from './lib/video-duration.js';
 import { fetchLikedVideos, fetchSubscriptions, fetchUploads } from './lib/api-sync.js';
 import { normalizeTtlMinutes, shouldRefresh, formatRefreshAge,
   selectSubscriptionRefreshBatch, CHANNELS_PER_REFRESH, REFRESH_STALE_MS } from './lib/refresh-policy.js';
@@ -74,6 +75,8 @@ function updateItem(state, data, now, source = '') {
     sources,
     visitedAt: old.visitedAt || state.visitedIds?.[data.id] || null,
     hasResume: Boolean(data.hasResume || old.hasResume),
+    durationSeconds: Number.isSafeInteger(data.durationSeconds) &&
+      data.durationSeconds > 0 ? data.durationSeconds : (old.durationSeconds ?? null),
     // Preserve confirmed Shorts identity across later API imports.
     isShort: Boolean(old.isShort || data.isShort === true),
     shortsFormat: old.shortsFormat || 'unverified',
@@ -253,7 +256,8 @@ async function probeUnclassifiedCandidates(candidateIds) {
     const eligible = [...new Set(candidateIds)].filter(id => {
       const video = items[id];
       if (!validId(id) || !video || !video.candidate ||
-          video.shortOverride !== undefined || video.isShort) return false;
+          video.shortOverride !== undefined || video.isShort ||
+          isKnownLongForm(video)) return false;
       // The previous oEmbed results cannot be carried over as CDN results:
       // invalidate that classifier at read time without resetting user data.
       if (video.shortsProbeSource !== SHORTS_PROBE_SOURCE) return true;
