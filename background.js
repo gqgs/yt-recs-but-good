@@ -4,7 +4,7 @@ import { fetchLikedVideos, fetchSubscriptions, fetchUploads } from './lib/api-sy
 import { normalizeTtlMinutes, shouldRefresh, formatRefreshAge,
   selectSubscriptionRefreshBatch, CHANNELS_PER_REFRESH, REFRESH_STALE_MS } from './lib/refresh-policy.js';
 import { getGoogleAccessToken, clearGoogleAccessToken, configuredGoogleClientId } from './lib/google-auth.js';
-import { probeFormatBatch, SHORTS_PROBE_MAX_BATCH,
+import { probeFormatBatchDetails, SHORTS_PROBE_MAX_BATCH,
   SHORTS_PROBE_WINDOW_MS, SHORTS_PROBE_SOURCE } from './lib/shorts-probe.js';
 
 // Privacy-first persistence and event log. All activity remains in chrome.storage.local.
@@ -274,18 +274,24 @@ async function probeUnclassifiedCandidates(candidateIds) {
       windowStart: activeWindow ? budget.windowStart : now,
       count: count + batch.length
     } });
-    const results = await probeFormatBatch(batch);
+    const results = await probeFormatBatchDetails(batch);
     await enqueueWrite(state => {
-      for (const [id, format] of results) {
+      for (const [id, result] of results) {
         const video = state.items[id];
         if (!video) continue;
-        video.shortsFormat = format;
+        video.shortsFormat = result.format;
         video.shortsProbedAt = Date.now();
         video.shortsProbeSource = SHORTS_PROBE_SOURCE;
+        // Only safe response metadata, never image bytes, cookies or tokens.
+        video.shortsProbeDiagnostic = {
+          variant: result.variant, status: result.status ?? null,
+          reason: result.reason, width: result.width ?? null,
+          height: result.height ?? null, fallbackReason: result.fallbackReason || null
+        };
       }
     });
     return { started: true, checked: results.size,
-      portrait: [...results.values()].filter(v => v === 'portrait').length };
+      portrait: [...results.values()].filter(v => v.format === 'portrait').length };
   })();
   shortsProbePromise = task;
   try {
