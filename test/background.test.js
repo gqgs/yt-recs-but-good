@@ -445,3 +445,22 @@ test('fallback thumbnail 404 then frame0 portrait is cached and filtered', async
   const after = await message({ type: 'GET_RECOMMENDATIONS' });
   assert.equal(after.result.recommendations.some(v => v.id === id), false);
 });
+
+test('duration metadata is preserved and protects long-form portrait candidates', async () => {
+  const id = 'portraitLNG';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'Full vertical interview', channel: 'Music', durationSeconds: 1431,
+      isShort: true }
+  ] });
+  let view = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(view.result.recommendations.some(v => v.id === id), true);
+  const check = await message({ type: 'PROBE_SHORTS_FORMAT', ids: [id] });
+  assert.equal(check.result.reason, 'cached');
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'Full vertical interview', channel: 'Music' }
+  ] });
+  const candidate = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(candidate.durationSeconds, 1431);
+  assert.equal(candidate.feedback, undefined);
+  await message({ type: 'MARK_SEEN', id });
+});
