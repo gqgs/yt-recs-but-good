@@ -69,6 +69,23 @@ globalThis.chrome = {
 // Simulate the official API with no external requests or credentials.
 globalThis.fetch = async (url, options) => {
   const parsed = new URL(url);
+  if (parsed.hostname === 'i.ytimg.com' &&
+      parsed.pathname === '/vi/uo5VU-KtUZk/oar2.jpg') {
+    return { ok: false, status: 404,
+      headers: { get: () => 'image/jpeg' },
+      arrayBuffer: async () => Uint8Array.from([0xff,0xd8,0xff,0xd9]).buffer };
+  }
+  if (parsed.hostname === 'i.ytimg.com' &&
+      parsed.pathname === '/vi/uo5VU-KtUZk/frame0.jpg') {
+    const bytes = Uint8Array.from([
+      0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0,
+      0xff, 0xc0, 0, 17, 8, 480 >> 8, 480 & 255,
+      268 >> 8, 268 & 255, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0
+    ]);
+    return { ok: true, status: 206,
+      headers: { get: () => 'image/jpeg' },
+      arrayBuffer: async () => bytes.buffer };
+  }
   if (parsed.hostname === 'i.ytimg.com' && parsed.pathname.startsWith('/vi/') && parsed.pathname.endsWith('/oar2.jpg')) {
     const id = parsed.pathname.split('/')[2];
     const portrait = id === 'portrait123';
@@ -398,7 +415,10 @@ test('on-demand CDN thumbnail probe filters API-only /watch URL videos', async (
   assert.equal(probed.result.checked, 1);
   const state = (await message({ type: 'GET_STATE' })).state.items[id];
   assert.equal(state.shortsFormat, 'portrait');
-  assert.equal(state.shortsProbeSource, 'oar2-jpeg-v1');
+  assert.equal(state.shortsProbeSource, 'oar2-frame0-jpeg-v2');
+  assert.equal(state.shortsProbeDiagnostic.variant, 'oar2');
+  assert.equal(state.shortsProbeDiagnostic.width, 1080);
+  assert.equal(state.shortsProbeDiagnostic.height, 1920);
   assert.ok(state.shortsProbedAt);
   const after = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
   assert.equal(after.recommendations.some(v => v.id === id), false);
@@ -407,4 +427,21 @@ test('on-demand CDN thumbnail probe filters API-only /watch URL videos', async (
   await message({ type: 'MARK_SHORT', id, isShort: false });
   const restored = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
   assert.equal(restored.recommendations.some(v => v.id === id), true);
+});
+
+test('fallback thumbnail 404 then frame0 portrait is cached and filtered', async () => {
+  const id = 'uo5VU-KtUZk';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [
+    { id, title: 'Unlabeled portrait clip', channel: 'Example' }
+  ] });
+  const result = await message({ type: 'PROBE_SHORTS_FORMAT', ids: [id] });
+  assert.equal(result.ok, true);
+  assert.equal(result.result.portrait, 1);
+  const state = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(state.shortsProbeSource, 'oar2-frame0-jpeg-v2');
+  assert.equal(state.shortsProbeDiagnostic.variant, 'frame0');
+  assert.equal(state.shortsProbeDiagnostic.width, 268);
+  assert.equal(state.shortsFormat, 'portrait');
+  const after = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(after.result.recommendations.some(v => v.id === id), false);
 });
