@@ -16,7 +16,9 @@ const API_SYNC_KEY = 'yt-recs-api-sync-v1';
 const REFRESH_KEY = 'yt-recs-candidate-refresh-v1';
 const DETAILS_KEY = 'yt-recs-video-details-status-v1';
 const PROBE_BUDGET_KEY = 'yt-recs-shorts-probe-budget-v1';
-const MAX_SHORTS_PROBES_PER_WINDOW = 48;
+// Local thumbnail analysis is cheap and each candidate is cached. A larger
+// session guard prevents infinite work without starving a 100-item Recent feed.
+const MAX_SHORTS_PROBES_PER_WINDOW = 300;
 
 const PAUSED_KEY = 'yt-recs-collection-paused-v1';
 const MAX_ITEMS = 4000;
@@ -291,8 +293,8 @@ async function probeUnclassifiedCandidates(candidateIds) {
         // Only safe response metadata, never image bytes, cookies or tokens.
         video.shortsProbeDiagnostic = {
           variant: result.variant, status: result.status ?? null,
-          reason: result.reason, width: result.width ?? null,
-          height: result.height ?? null, fallbackReason: result.fallbackReason || null
+          reason: result.reason, score: result.score ?? null,
+          features: result.features || null
         };
       }
     });
