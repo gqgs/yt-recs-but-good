@@ -243,7 +243,7 @@
     const formatStatus = node('p', 'ytrbg-format-status',
       check ? 'Format check: ' + (video.shortsFormat || 'unknown') +
         ' · ' + check.variant + (check.status ? ' · HTTP ' + check.status : '') +
-        (check.width && check.height ? ' · ' + check.width + '×' + check.height : '') +
+        (check.score !== null && check.score !== undefined ? ' · score ' + check.score : '') +
         (check.reason && check.reason !== 'ok' ? ' · ' + check.reason : '') :
         'Format check: not yet completed');
     explain.append(formatStatus);
@@ -252,7 +252,7 @@
     const markedShort = video.shortOverride === undefined
       ? Boolean(video.isShort ||
         (video.shortsFormat === 'portrait' &&
-         video.shortsProbeSource === 'oar2-frame0-jpeg-v2'))
+         video.shortsProbeSource === 'three-panel-image-v1'))
       : video.shortOverride;
     explain.append(button(markedShort ? 'Not a Short' : 'Mark as Short',
       'ytrbg-short-label', () => {
