@@ -26,6 +26,7 @@
   let pendingFormatCount = 0;
   let detailsInFlight = false;
   let lastDetailsRequestAt = 0;
+  let detailsCandidateIds = [];
 
 
   const onHome = () => location.pathname === '/';
@@ -55,13 +56,15 @@
   function requestVideoDetails(force = false) {
     if (!enabled || !onHome() || detailsInFlight ||
         !force && Date.now() - lastDetailsRequestAt < 45_000) return;
-    const ids = rankedVideos.filter(video =>
-      !Number.isSafeInteger(video.durationSeconds) || video.durationSeconds <= 0)
-      .slice(0, 50).map(video => video.id);
+    const ids = detailsCandidateIds.slice(0, 50);
     if (!ids.length) return;
     lastDetailsRequestAt = Date.now();
     detailsInFlight = true;
     send({ type: 'REFRESH_VIDEO_DETAILS', ids, force })
+      .then(({ result }) => {
+        if (result?.reason === 'upload-sync-running')
+          lastDetailsRequestAt = 0;
+      })
       .catch(showError)
       .finally(() => {
         detailsInFlight = false;
@@ -430,8 +433,11 @@
       if (id !== requestId || !enabled || !onHome()) return;
       const { ready, pending } = globalThis.YTRBGShortsVisibility.splitCandidates(
         response.result.recommendations, settings.hideShorts !== false);
+      detailsCandidateIds = response.result.detailCandidates || [];
       render({ ...response.result, recommendations: ready, pendingFormats: pending });
-      if (ready.length) requestVideoDetails(false);
+      // Enrich cached API-only items, including portrait videos currently
+      // withheld by the Shorts heuristic but actually long-form.
+      requestVideoDetails(false);
     } catch (error) {
       if (id === requestId) showError(error);
     }
@@ -456,10 +462,15 @@
         if (next.mode !== settings.mode) visibleCount = 0;
         settings = next;
       }
+      // Retry a detail lookup immediately after an upload import finishes;
+      // the earlier attempt may have been postponed to avoid overlapping APIs.
+      const refreshChange = changes['yt-recs-candidate-refresh-v1'];
+      if (refreshChange?.newValue?.phase &&
+          refreshChange.newValue.phase !== 'running')
+        lastDetailsRequestAt = 0;
       if (changes[HOME_KEY] || changes[SETTINGS_KEY] ||
           changes['yt-recs-state-v1'] || changes['yt-recs-collection-paused-v1'] ||
-          changes['yt-recs-candidate-refresh-v1'] ||
-          changes['yt-recs-video-details-status-v1'])
+          refreshChange || changes['yt-recs-video-details-status-v1'])
         scheduleRefresh();
     });
     document.addEventListener('yt-navigate-finish', () => {
