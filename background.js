@@ -1,4 +1,4 @@
-import { relativeAgeDays, rankVideos } from './lib/recommender.js';
+import { relativeAgeDays, rankVideos, recentFeedPage } from './lib/recommender.js';
 import { formatMetadataLine } from './lib/video-metadata.js';
 import { isKnownLongForm } from './lib/video-duration.js';
 import { fetchLikedVideos, fetchSubscriptions, fetchUploads } from './lib/api-sync.js';
@@ -727,9 +727,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
          v.viewCount === null || v.viewCount === undefined))
         .sort((a, b) => (b.lastSeenAt || 0) - (a.lastSeenAt || 0))
         .slice(0, 50).map(v => v.id);
-      return { recommendations: rankVideos(state.items, settings).map(video => ({
+      const requestedWindow = Number(msg.recentLimit);
+      const recentWindow = Number.isFinite(requestedWindow) ?
+        Math.min(4000, Math.max(100, Math.floor(requestedWindow))) : 100;
+      const feed = settings.mode === 'recent'
+        ? recentFeedPage(state.items, { ...settings, limit: recentWindow })
+        : { recommendations: rankVideos(state.items, settings),
+            totalEligible: null, hasMore: false };
+      return { recommendations: feed.recommendations.map(video => ({
         ...video, metadataLine: formatMetadataLine(video)
       })),
+        recentTotal: feed.totalEligible, recentHasMore: feed.hasMore,
+        recentWindow: settings.mode === 'recent' ? recentWindow : null,
         paused, refresh: await refreshDetails(paused),
         detailStatus: (await chrome.storage.local.get(DETAILS_KEY))[DETAILS_KEY] || {},
         detailCandidates,
