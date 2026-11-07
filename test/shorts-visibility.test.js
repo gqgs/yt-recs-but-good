@@ -16,8 +16,8 @@ function candidate(id, extra = {}) {
 
 test('unclassified candidates are withheld until the format result arrives', () => {
   const videos = [candidate('unverified'),
-    candidate('landscape', { shortsFormat: 'landscape', shortsProbedAt: NOW - 1000, shortsProbeSource: 'oar2-jpeg-v1' }),
-    candidate('unknown', { shortsFormat: 'unknown', shortsProbedAt: NOW - 1000, shortsProbeSource: 'oar2-jpeg-v1' })];
+    candidate('landscape', { shortsFormat: 'landscape', shortsProbedAt: NOW - 1000, shortsProbeSource: 'oar2-frame0-jpeg-v2' }),
+    candidate('unknown', { shortsFormat: 'unknown', shortsProbedAt: NOW - 1000, shortsProbeSource: 'oar2-frame0-jpeg-v2' })];
   const { ready, pending } = splitCandidates(videos, true, NOW);
   assert.deepEqual(ready.map(v => v.id).join(','), 'landscape,unknown');
   assert.deepEqual(pending.map(v => v.id).join(','), 'unverified');
@@ -29,7 +29,7 @@ test('further format classification never requires a destructive cache reset', (
   assert.equal(needsFormatCheck(item, NOW), true);
   item.shortsFormat = 'landscape';
   item.shortsProbedAt = NOW;
-  item.shortsProbeSource = 'oar2-jpeg-v1';
+  item.shortsProbeSource = 'oar2-frame0-jpeg-v2';
   assert.equal(needsFormatCheck(item, NOW), false);
 });
 
@@ -48,22 +48,22 @@ test('disabled filter and user overrides never defer videos', () => {
 
 test('stale unknowns and stale landscapes are withheld for revalidation', () => {
   assert.equal(needsFormatCheck(candidate('unknown', {
-    shortsFormat: 'unknown', shortsProbedAt: NOW - 7 * 3600_000, shortsProbeSource: 'oar2-jpeg-v1'
+    shortsFormat: 'unknown', shortsProbedAt: NOW - 7 * 3600_000, shortsProbeSource: 'oar2-frame0-jpeg-v2'
   }), NOW), true);
   assert.equal(needsFormatCheck(candidate('fresh', {
-    shortsFormat: 'unknown', shortsProbedAt: NOW - 5 * 3600_000, shortsProbeSource: 'oar2-jpeg-v1'
+    shortsFormat: 'unknown', shortsProbedAt: NOW - 5 * 3600_000, shortsProbeSource: 'oar2-frame0-jpeg-v2'
   }), NOW), false);
   assert.equal(needsFormatCheck(candidate('old', {
-    shortsFormat: 'landscape', shortsProbedAt: NOW - 31 * 86400_000, shortsProbeSource: 'oar2-jpeg-v1'
+    shortsFormat: 'landscape', shortsProbedAt: NOW - 31 * 86400_000, shortsProbeSource: 'oar2-frame0-jpeg-v2'
   }), NOW), true);
   assert.equal(needsFormatCheck(candidate('current', {
-    shortsFormat: 'landscape', shortsProbedAt: NOW - 29 * 86400_000, shortsProbeSource: 'oar2-jpeg-v1'
+    shortsFormat: 'landscape', shortsProbedAt: NOW - 29 * 86400_000, shortsProbeSource: 'oar2-frame0-jpeg-v2'
   }), NOW), false);
 });
 
 test('portrait results are already excluded by ranking and do not need reprobes', () => {
   const portrait = candidate('portrait', {
-    shortsFormat: 'portrait', shortsProbedAt: NOW, shortsProbeSource: 'oar2-jpeg-v1'
+    shortsFormat: 'portrait', shortsProbedAt: NOW, shortsProbeSource: 'oar2-frame0-jpeg-v2'
   });
   assert.equal(needsFormatCheck(portrait, NOW), false);
 });
