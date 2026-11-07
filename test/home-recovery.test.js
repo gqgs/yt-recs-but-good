@@ -50,3 +50,10 @@ test('Home splits uncertain candidates before rendering the grid', () => {
   assert.match(home, /pendingFormatCount \? 'Checking video formats'/);
   assert.match(home, /probeFormats\(pendingFormats\)/);
 });
+
+test('a suspended Shorts probe shows an honest waiting state instead of permanent checking', () => {
+  assert.match(home, /function deferFormatProbe\(ms\)/);
+  assert.match(home, /checkingPaused \? 'Format checks temporarily paused'/);
+  assert.match(home, /formatProbeRetryTimer = setTimeout/);
+  assert.match(home, /deferFormatProbe\(10 \* 60_000\)/);
+});
