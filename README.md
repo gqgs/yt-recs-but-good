@@ -166,6 +166,34 @@ Authorization uses `chrome.identity.launchWebAuthFlow()` with a registered HTTPS
 
 Google authorization, consent configuration, API quota, or browser behavior may still prevent syncing; browsing-based recommendations remain available. For broader distribution, review the YouTube API Services policies, including data-retention and refresh obligations.
 
+## Recovering missing durations and view counts
+
+The extension can import a video successfully even when its supplemental
+`videos.list` metadata request fails. Earlier versions **silently discarded**
+those errors, leaving many cards with an upload age but no duration or view
+count. This has been corrected: automatic and manual upload imports now record
+how many metadata batches succeeded, how many duration records were received,
+and any API error. Missing data is never fabricated.
+
+**Refresh details** on the curated Home performs a bounded lookup for up to
+50 *already-collected* videos lacking duration or view information, using one
+`videos.list(part=contentDetails,statistics)` request. Home also attempts
+this non-interactively when eligible recommendations are shown. It does not
+revisit subscriptions, clear the local dataset, or prompt for Google login.
+Duration and view counts are merged into existing records without altering
+likes, watched flags, manual Shorts labels, or ranking preferences.
+
+A failed lookup displays the YouTube API error beside **Refresh details**
+rather than appearing to succeed. Automatic retries are throttled for one
+hour per video; clicking the button explicitly bypasses this cooldown.
+You can use the status and the existing service-worker console to diagnose
+authorization, quota, or API response problems. No full-cache purge is
+necessary; the current OAuth authorization is reused.
+
+The API can legitimately omit duration for live/upcoming streams and view
+counts for unavailable/restricted videos. Those cards remain usable and
+display only metadata actually retrieved.
+
 ## Video duration and long-form portrait videos
 
 Curated Home and the extension popup now show a YouTube-style **duration badge**
