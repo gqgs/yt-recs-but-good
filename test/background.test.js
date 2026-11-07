@@ -89,7 +89,7 @@ globalThis.fetch = async (url, options) => {
   }
   if (parsed.hostname === 'i.ytimg.com' && parsed.pathname.startsWith('/vi/') && parsed.pathname.endsWith('/oar2.jpg')) {
     const id = parsed.pathname.split('/')[2];
-    const portrait = id === 'portrait123';
+    const portrait = id === 'portrait123' || id === 'hiddenlong1';
     const width = portrait ? 1080 : 1920;
     const height = portrait ? 1920 : 1080;
     const bytes = Uint8Array.from([
@@ -546,11 +546,14 @@ test('duration enrichment candidates include portrait videos excluded by ranking
   }] });
   await message({ type: 'PROBE_SHORTS_FORMAT', ids: [id] });
   const view = await message({ type: 'GET_RECOMMENDATIONS' });
-  assert.equal(view.result.recommendations.some(v => v.id === id), true);
+  assert.equal(view.result.recommendations.some(v => v.id === id), false);
   assert.equal(view.result.detailCandidates.includes(id), true);
   const details = await message({ type: 'REFRESH_VIDEO_DETAILS', ids: [id], force: true });
   assert.equal(details.ok, true);
   const candidate = (await message({ type: 'GET_STATE' })).state.items[id];
   assert.equal(candidate.durationSeconds, 1431);
+  assert.equal(candidate.shortsFormat, 'portrait');
+  const restored = await message({ type: 'GET_RECOMMENDATIONS' });
+  assert.equal(restored.result.recommendations.some(v => v.id === id), true);
   await message({ type: 'MARK_SEEN', id });
 });
