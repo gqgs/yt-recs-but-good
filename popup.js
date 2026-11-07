@@ -135,7 +135,14 @@ function renderVideo(video, index) {
       feedback(video.id, video.feedback === 'like' ? 'clear' : 'like').catch(showError);
     }),
     button('Not for me', '', () => feedback(video.id, 'less').catch(showError)),
-    button('Seen', '', () => markSeen(video.id).catch(showError))
+    button('Seen', '', () => markSeen(video.id).catch(showError)),
+    button(video.shortOverride === true ? 'Not a Short' : 'Mark as Short', '', async () => {
+      try {
+        await request({ type: 'MARK_SHORT', id: video.id,
+          isShort: video.shortOverride !== true });
+        await refresh();
+      } catch (error) { showError(error); }
+    })
   );
   info.append(actions);
   card.append(thumbnail, info);
