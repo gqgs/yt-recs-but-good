@@ -299,6 +299,44 @@ initial false positive, but it is *far too small* and non-random to be an
 accuracy estimate. Evaluate against the provided labeled `shorts/` and
 `normal/` collection before treating the heuristic as validated.
 
+## Recent feed: expanding beyond the first 100 results
+
+The **unseen candidates** counter counts locally stored videos not watched or
+dismissed. It is **not** a count of recommendations already classified or
+rendered. The number eligible for Recent is smaller after watched videos,
+known Shorts, unavailable/invalid titles, and Discovery-only source filtering
+are applied.
+
+An earlier implementation hard-clipped the background ranking to **100
+videos**. Infinite scroll could display only that initial shortlist even
+when more than 1,000 unseen candidates existed in the database. Now:
+
+- **Recent is chronological**, newest first. It is not reordered by
+  personalization, channel saturation, or diversity penalties.
+- Initial Home loads the first **100 eligible** videos. Once the user reaches
+  that window's end, Recent increases the window by **100** and fetches
+  another chronological prefix from the existing local database. Scrolling
+  or the **Load next 100 recent candidates** control continues until all
+  eligible videos have been visited.
+- Shorts/portrait classification is **lazy**, performed on the necessary
+  batch of up to 12 candidates; it is not a requirement to inspect all
+  stored videos when opening Home. Unverified items are held back before
+  display, while already verified results render immediately. The current
+  format-check count refers to the loaded window, not the entire database.
+- Automatic expansion pauses while the current window contains pending
+  format checks, avoiding an uncontrolled cascade through thousands of
+  thumbnails. The explicit Load control can still request more. The
+  existing per-session request cap remains in force.
+- The toolbar shows both **unseen in pool** and **eligible in Recent**.
+  The pagination label distinguishes the loaded/ready portion from the
+  total eligible pool. Previously “All caught up” only meant the shortlist
+  was exhausted; other modes now say **End of shortlist** instead.
+
+If there are 1,094 unseen candidates and 800 eligible in Recent, the page
+will not download and classify 800 thumbnails immediately. It progressively
+explores this pool as you scroll, preserving local cache, likes, history,
+and explicit Shorts labels. No re-index or data purge is necessary.
+
 ## Discovery and repeat filtering
 
 After testing the first curated Home feed, it became clear that ranking videos taken
