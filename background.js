@@ -380,7 +380,9 @@ function startDetailsRefresh(ids, force = false) {
   });
   const task = runDetailsRefresh(ids, force);
   detailsRefreshPromise = task;
-  void task.finally(() => {
+  void task.then(() => {
+    if (detailsRefreshPromise === task) detailsRefreshPromise = null;
+  }, () => {
     if (detailsRefreshPromise === task) detailsRefreshPromise = null;
   });
   return task;
