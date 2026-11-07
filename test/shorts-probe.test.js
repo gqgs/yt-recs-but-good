@@ -20,7 +20,7 @@ function response(label = 'positive', status = 200) {
 const decode = async blob => blob.label === 'positive' ? positive : negative;
 
 test('single request loads existing landscape thumbnail for local image classification', async () => {
-  assert.equal(SHORTS_PROBE_SOURCE, 'three-panel-image-v1');
+  assert.equal(SHORTS_PROBE_SOURCE, 'three-panel-image-v2');
   assert.equal(thumbnailProbeUrl('abcdefghijk'),
     'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg');
   assert.throws(() => thumbnailProbeUrl('too-long-video-identifier'), /Invalid/);
