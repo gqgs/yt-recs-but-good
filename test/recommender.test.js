@@ -175,7 +175,7 @@ test('user can override Shorts classification without deleting candidates or cha
 test('CDN portrait JPEG is filtered even when the only video URL is /watch', () => {
   const items = {
     portrait: video('portrait', 'Vertical music clip', {
-      shortsFormat: 'portrait', shortsProbeSource: 'oar2-jpeg-v1', url: 'https://www.youtube.com/watch?v=abcdefghijk',
+      shortsFormat: 'portrait', shortsProbeSource: 'oar2-frame0-jpeg-v2', url: 'https://www.youtube.com/watch?v=abcdefghijk',
       sources: ['subscriptions']
     }),
     regular: video('regular', 'Ordinary short documentary', {
@@ -198,6 +198,6 @@ test('old oEmbed portrait results are staged for new classification rather than 
     })
   };
   assert.equal(rankVideos(items, {}, NOW).length, 1);
-  items.legacy.shortsProbeSource = 'oar2-jpeg-v1';
+  items.legacy.shortsProbeSource = 'oar2-frame0-jpeg-v2';
   assert.equal(rankVideos(items, {}, NOW).length, 0);
 });
