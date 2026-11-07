@@ -73,8 +73,8 @@ globalThis.fetch = async (url, options) => {
     const requested = new URL(parsed.searchParams.get('url'));
     const id = requested.pathname.split('/').at(-1);
     return { ok: true, json: async () => ({
-      width: id === 'markshort34' ? 113 : 200,
-      height: id === 'markshort34' ? 200 : 113
+      width: id === 'portrait123' ? 113 : 200,
+      height: id === 'portrait123' ? 200 : 113
     }) };
   }
   if (parsed.hostname !== 'www.googleapis.com' ||
@@ -381,7 +381,7 @@ test('manual Shorts labeling filters candidates without polluting preference fee
 });
 
 test('on-demand oEmbed format probe filters API-only /watch URL videos', async () => {
-  const id = 'markshort34';
+  const id = 'portrait123';
   await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [{
     id, title: 'Format probe candidate', channel: 'Clips'
   }] });
