@@ -291,14 +291,16 @@ async function runApiSync() {
         }
       }
     });
-    await syncStatus('complete', 'Google import complete. Open YouTube Home to see your feed.', {
+    const message = 'Google import complete: checked ' + imported.checked +
+      ' channels, skipped ' + imported.unavailable + ' unavailable uploads playlists.';
+    await syncStatus('complete', message, {
       likes: likes.length, subscriptions: subs.length, uploads: imported.videos,
-      channelsScanned: imported.channels
+      channelsScanned: imported.checked, unavailable: imported.unavailable
     });
     await saveRefreshStatus({
       phase: 'ready', lastSuccessAt: Date.now(),
-      message: 'Imported uploads from ' + imported.channels + ' subscribed channels',
-      channels: imported.channels, newVideos: imported.videos
+      message, channels: imported.checked,
+      unavailable: imported.unavailable, newVideos: imported.videos
     });
   } catch (error) {
     await syncStatus('error', String(error?.message || error));
@@ -321,7 +323,8 @@ function refreshSummary(status, configured, paused, now = Date.now()) {
   if (status?.phase === 'error') return 'Refresh failed · ' + String(status.message || 'Try again').slice(0, 100);
   const age = formatRefreshAge(status?.lastSuccessAt || 0, now);
   if (status?.lastSuccessAt) return age +
-    (Number.isFinite(status.newVideos) ? ' · ' + status.newVideos + ' newly found' : '');
+    (Number.isFinite(status.newVideos) ? ' · ' + status.newVideos + ' newly found' : '') +
+    (status.unavailable ? ' · ' + status.unavailable + ' unavailable playlists skipped' : '');
   return 'Never synced · authorize YouTube API to discover new uploads';
 }
 async function refreshDetails(paused = false) {
@@ -348,9 +351,11 @@ async function performCandidateRefresh(interactive) {
     const paused = (await chrome.storage.local.get(PAUSED_KEY))[PAUSED_KEY] === true;
     if (paused) return;
     await saveRefreshStatus({
-      phase: 'ready', message: 'Subscribed uploads refreshed',
-      lastSuccessAt: Date.now(), channels: summary.channels,
-      newVideos: newlyFound
+      phase: 'ready',
+      message: 'Checked ' + summary.checked + ' subscribed channels' +
+        (summary.unavailable ? '; skipped ' + summary.unavailable + ' unavailable uploads playlists' : ''),
+      lastSuccessAt: Date.now(), channels: summary.checked,
+      unavailable: summary.unavailable, newVideos: newlyFound
     });
   } catch (error) {
     const paused = (await chrome.storage.local.get(PAUSED_KEY))[PAUSED_KEY] === true;

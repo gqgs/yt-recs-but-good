@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   requestYouTube, fetchLikedVideos, fetchSubscriptions, fetchUploads,
-  likedVideo, subscription, uploadedVideo
+  likedVideo, subscription, uploadedVideo, YouTubeApiError, isUnavailableUploadPlaylist
 } from '../lib/api-sync.js';
 
 const CID = 'UC' + 'a'.repeat(22);
@@ -119,4 +119,105 @@ test('lightweight automatic upload checks do not request view statistics', async
   assert.equal(result.videos, 1);
   assert.equal(videos[0].id, VID);
   assert.deepEqual(requests.map(p => p.split('/').at(-1)), ['channels', 'playlistItems']);
+});
+
+test('skips one unavailable uploads playlist but imports the other subscriptions', async () => {
+  const badChannel = 'UC' + 'b'.repeat(22);
+  const calls = [];
+  const fetcher = async (url) => {
+    const u = new URL(url);
+    calls.push(u.pathname.split('/').at(-1));
+    if (u.pathname.endsWith('/channels')) return { ok: true, json: async () => ({
+      items: [
+        { id: CID, contentDetails: { relatedPlaylists: { uploads: 'UU' + 'a'.repeat(22) } } },
+        { id: badChannel, contentDetails: { relatedPlaylists: { uploads: 'UU' + 'b'.repeat(22) } } }
+      ]
+    }) };
+    if (u.pathname.endsWith('/playlistItems') &&
+        u.searchParams.get('playlistId') === 'UU' + 'b'.repeat(22)) {
+      return { ok: false, status: 404, json: async () => ({
+        error: {
+          message: 'The playlist identified with the request\'s <code>playlistId</code> parameter could not be found.',
+          errors: [{ reason: 'playlistNotFound' }]
+        }
+      }) };
+    }
+    if (u.pathname.endsWith('/playlistItems')) return { ok: true, json: async () => ({
+      items: [{ snippet: { title: 'A valid technical talk' }, contentDetails: { videoId: VID } }]
+    }) };
+    throw new Error('Unexpected request: ' + u);
+  };
+  const batches = [];
+  const result = await fetchUploads('token', [
+    { channelId: badChannel }, { channelId: CID }
+  ], {
+    fetcher, includeStatistics: false, onBatch: videos => batches.push(videos)
+  });
+  assert.equal(result.channels, 2);
+  assert.equal(result.checked, 1);
+  assert.equal(result.unavailable, 1);
+  assert.equal(result.videos, 1);
+  assert.equal(batches.length, 1);
+  assert.deepEqual(batches[0].map(v => v.id), [VID]);
+  assert.equal(calls.filter(x => x === 'playlistItems').length, 2);
+});
+
+test('skips per-playlist access errors but never hides quota or credential failures', async () => {
+  const inaccessible = new YouTubeApiError(403, 'playlistItemsNotAccessible', 'Not authorized for playlist');
+  const quota = new YouTubeApiError(403, 'quotaExceeded', 'Quota exceeded');
+  const notFoundVideo = new YouTubeApiError(404, 'videoNotFound', 'Video missing');
+  assert.equal(isUnavailableUploadPlaylist(inaccessible), true);
+  assert.equal(isUnavailableUploadPlaylist(new YouTubeApiError(404, 'playlistNotFound', 'Missing')), true);
+  assert.equal(isUnavailableUploadPlaylist(quota), false);
+  assert.equal(isUnavailableUploadPlaylist(notFoundVideo), false);
+  for (const { status, reason } of [{ status: 403, reason: 'quotaExceeded' }, { status: 401, reason: 'authError' }]) {
+    const fetcher = async url => {
+      const u = new URL(url);
+      if (u.pathname.endsWith('/channels')) return { ok: true, json: async () => ({
+        items: [{ id: CID, contentDetails: { relatedPlaylists: { uploads: 'UU' + 'a'.repeat(22) } } }]
+      }) };
+      return { ok: false, status, json: async () => ({
+        error: { message: 'Failure for playlist request', errors: [{ reason }] }
+      }) };
+    };
+    await assert.rejects(
+      fetchUploads('token', [{ channelId: CID }], { fetcher, includeStatistics: false }),
+      err => err instanceof YouTubeApiError && err.status === status && err.reason === reason
+    );
+  }
+});
+
+test('does not treat an entirely unavailable subscription set as a successful refresh', async () => {
+  const fetcher = async url => {
+    if (new URL(url).pathname.endsWith('/channels')) return {
+      ok: true, json: async () => ({ items: [
+        { id: CID, contentDetails: { relatedPlaylists: { uploads: 'UU' + 'a'.repeat(22) } } }
+      ] })
+    };
+    return {
+      ok: false, status: 404, json: async () => ({
+        error: { message: 'Playlist missing', errors: [{ reason: 'playlistNotFound' }] }
+      })
+    };
+  };
+  await assert.rejects(
+    fetchUploads('token', [{ channelId: CID }], { fetcher, includeStatistics: false }),
+    /all 1 upload playlists were unavailable/
+  );
+});
+
+test('API error exposes structured reason and sanitizes inline code tags', async () => {
+  await assert.rejects(
+    requestYouTube('playlistItems', { playlistId: 'UUtest' }, 'token', async () => ({
+      ok: false, status: 404, json: async () => ({
+        error: {
+          message: 'The <code>playlistId</code> is missing',
+          errors: [{ reason: 'playlistNotFound' }]
+        }
+      })
+    })),
+    err => err instanceof YouTubeApiError && err.status === 404 &&
+      err.reason === 'playlistNotFound' && err.message.includes('The playlistId is missing') &&
+      !err.message.includes('<code>')
+  );
 });
