@@ -180,12 +180,27 @@ Shorts-specific YouTube card containers. **Video duration is not a Shorts
 classifier**: ordinary short music performances, demos, and educational
 videos remain eligible.
 
-**Limitation:** YouTube Data API upload records don't expose a reliable
-Shorts-type flag. API-only candidates with no Shorts evidence remain eligible
-until the extension encounters the corresponding Shorts link or card in
-YouTube's interface. This deliberately avoids hiding regular videos based on
-unreliable duration or aspect-ratio guesses. This setting does not remove Shorts
-from YouTube's own shelves, search results, or native pages.
+**API detection:** The importer now makes a small, batched
+`videos.list(part=snippet)` lookup for newly collected uploads. It recognizes
+YouTube's `shortsAspectRatio` thumbnail variant (introduced November 2026
+for Shorts with custom thumbnails), plus explicit `#shorts`, `#ytshorts`, or
+`#youtubeshorts` labels in creator metadata. These are additional positive
+signals, not a universal Shorts field. Unknown videos remain eligible because
+neither a duration below three minutes nor a vertical-looking thumbnail is
+sufficient to prove that an upload is a Short.
+
+**Correcting a missed Short:** Open **Why this video?** under a recommendation
+and click **Mark as Short**. That video disappears immediately with Hide Shorts
+enabled, without being marked disliked or altering your preference profile.
+If misclassified, turn Hide Shorts off under **Tune**, find the video and click
+**Not a Short** to override the automatic classification. These manual labels
+survive subsequent metadata imports and do not delete the cached candidate.
+
+**Limitations:** Because the Shorts-specific thumbnail field is only available
+for some uploads, API-only Shorts without a label may still appear. This
+setting only filters our curated recommendations; it doesn't remove native
+YouTube Shorts shelves or search results. No duration-only blanket filter is
+applied.
 
 ## Discovery and repeat filtering
 
