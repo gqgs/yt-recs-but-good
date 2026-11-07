@@ -80,3 +80,18 @@ test('old oEmbed cached formats require the new CDN check, without deleting them
   assert.equal(needsFormatCheck(oldPortrait, NOW), true);
   assert.equal(splitCandidates([oldLandscape, oldPortrait], true, NOW).pending.length, 2);
 });
+
+test('portrait long-form videos bypass format checks even with stale probes', () => {
+  const a = candidate('long', { durationSeconds: 1431 });
+  const b = candidate('long2', { durationSeconds: 2939,
+    shortsFormat: 'portrait', shortsProbedAt: NOW - 40 * 86400_000 });
+  assert.equal(needsFormatCheck(a, NOW), false);
+  assert.equal(needsFormatCheck(b, NOW), false);
+  assert.deepEqual(splitCandidates([a, b], true, NOW).ready.map(v => v.id).join(','), 'long,long2');
+});
+test('duration badges use expected formatting', () => {
+  assert.equal(sandbox.YTRBGShortsVisibility.formatDuration(1431), '23:51');
+  assert.equal(sandbox.YTRBGShortsVisibility.formatDuration(2939), '48:59');
+  assert.equal(sandbox.YTRBGShortsVisibility.formatDuration(3661), '1:01:01');
+  assert.equal(sandbox.YTRBGShortsVisibility.formatDuration(null), '');
+});
