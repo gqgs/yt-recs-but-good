@@ -69,6 +69,14 @@ globalThis.chrome = {
 // Simulate the official API with no external requests or credentials.
 globalThis.fetch = async (url, options) => {
   const parsed = new URL(url);
+  if (parsed.hostname === 'www.youtube.com' && parsed.pathname === '/oembed') {
+    const requested = new URL(parsed.searchParams.get('url'));
+    const id = requested.pathname.split('/').at(-1);
+    return { ok: true, json: async () => ({
+      width: id === 'markshort34' ? 113 : 200,
+      height: id === 'markshort34' ? 200 : 113
+    }) };
+  }
   if (parsed.hostname !== 'www.googleapis.com' ||
       options?.headers?.Authorization !== 'Bearer testing-token') {
     throw new Error('Unexpected network request during test');
@@ -370,4 +378,26 @@ test('manual Shorts labeling filters candidates without polluting preference fee
   view = await message({ type: 'GET_RECOMMENDATIONS' });
   assert.equal(view.result.recommendations.some(v => v.id === id), true);
   await message({ type: 'MARK_SEEN', id });
+});
+
+test('on-demand oEmbed format probe filters API-only /watch URL videos', async () => {
+  const id = 'markshort34';
+  await message({ type: 'CANDIDATES', source: 'subscriptions', videos: [{
+    id, title: 'Format probe candidate', channel: 'Clips'
+  }] });
+  const before = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
+  assert.equal(before.recommendations.some(v => v.id === id), true);
+  const probed = await message({ type: 'PROBE_SHORTS_FORMAT', ids: [id] });
+  assert.equal(probed.ok, true);
+  assert.equal(probed.result.checked, 1);
+  const state = (await message({ type: 'GET_STATE' })).state.items[id];
+  assert.equal(state.shortsFormat, 'portrait');
+  assert.ok(state.shortsProbedAt);
+  const after = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
+  assert.equal(after.recommendations.some(v => v.id === id), false);
+  const repeated = await message({ type: 'PROBE_SHORTS_FORMAT', ids: [id] });
+  assert.equal(repeated.result.reason, 'cached');
+  await message({ type: 'MARK_SHORT', id, isShort: false });
+  const restored = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
+  assert.equal(restored.recommendations.some(v => v.id === id), true);
 });
