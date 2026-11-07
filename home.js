@@ -27,6 +27,13 @@
   let detailsInFlight = false;
   let lastDetailsRequestAt = 0;
   let detailsCandidateIds = [];
+  // Recent is a chronological inventory, not a fixed 100-result shortlist.
+  // Expand only as the user scrolls; keep other recommendation modes bounded.
+  const RECENT_CHUNK = 100;
+  let recentWindow = RECENT_CHUNK;
+  let recentTotal = 0;
+  let recentHasMore = false;
+  let recentLoading = false;
 
 
   const onHome = () => location.pathname === '/';
@@ -89,6 +96,8 @@
     if (!Object.hasOwn(MODES, mode)) return;
     settings = { ...settings, mode };
     visibleCount = 0;
+    recentWindow = RECENT_CHUNK;
+    recentHasMore = false;
     await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
   }
   function cleanUp() {
@@ -99,6 +108,10 @@
     gridElement = null;
     visibleCount = 0;
     rankedVideos = [];
+    recentWindow = RECENT_CHUNK;
+    recentHasMore = false;
+    recentTotal = 0;
+    recentLoading = false;
     requestId++;
     root?.remove();
     root = null;
@@ -270,28 +283,57 @@
 
   function updatePagination() {
     const remaining = Math.max(0, rankedVideos.length - visibleCount);
+    const moreToFetch = settings.mode === 'recent' && recentHasMore;
     if (pageStatus) {
-      pageStatus.textContent = 'Showing ' + visibleCount + ' of ' + rankedVideos.length +
-        ' recommendations' + (remaining ? '' : ' · All caught up');
+      pageStatus.textContent = settings.mode === 'recent'
+        ? 'Showing ' + visibleCount + ' of ' + rankedVideos.length +
+          ' ready recommendations · ' + recentTotal + ' eligible in Recent' +
+          (moreToFetch ? ' · More to load' : remaining ? '' : ' · All eligible checked')
+        : 'Showing ' + visibleCount + ' of ' + rankedVideos.length +
+          ' recommendations' + (remaining ? '' : ' · All caught up');
     }
     if (loadButton) {
-      loadButton.hidden = remaining === 0;
-      loadButton.disabled = remaining === 0;
+      loadButton.hidden = remaining === 0 && !moreToFetch;
+      loadButton.disabled = (remaining === 0 && !moreToFetch) || recentLoading;
+      loadButton.textContent = remaining > 0 ? 'Load more recommendations'
+        : 'Load next 100 recent candidates';
     }
-    if (!remaining) {
+    if (!remaining && !moreToFetch) {
       scrollObserver?.disconnect();
       scrollObserver = null;
     }
   }
+
+  async function loadMoreRecent() {
+    if (recentLoading || !recentHasMore || !enabled || !onHome()) return;
+    recentLoading = true;
+    recentWindow = Math.min(4000, recentWindow + RECENT_CHUNK);
+    updatePagination();
+    try {
+      await refresh();
+      // After re-rendering, reveal the next batch if it has completed
+      // classification; otherwise let the pending format queue progress.
+      if (visibleCount < rankedVideos.length) appendPage();
+    } finally {
+      recentLoading = false;
+      updatePagination();
+    }
+  }
+
   function appendPage() {
     if (!enabled || !onHome() || !gridElement?.isConnected) return;
     const next = Math.min(visibleCount + PAGE_SIZE, rankedVideos.length);
+    if (next === visibleCount && settings.mode === 'recent' && recentHasMore) {
+      void loadMoreRecent().catch(showError);
+      return;
+    }
     for (let i = visibleCount; i < next; i++) gridElement.append(card(rankedVideos[i]));
     visibleCount = next;
     updatePagination();
   }
   function render({ recommendations, counts, paused = false, refresh = {},
-    detailStatus = {}, pendingFormats = [], heldBack = 0 }) {
+    detailStatus = {}, pendingFormats = [], heldBack = 0,
+    recentTotal: totalEligible = null, recentHasMore: moreRecent = false }) {
     if (!ensureRoot() || !enabled) return;
     clearTimeout(staleStatusTimer);
     staleStatusTimer = null;
@@ -311,6 +353,8 @@
     scrollObserver = null;
     gridElement = null;
     rankedVideos = recommendations;
+    recentTotal = Number.isInteger(totalEligible) ? totalEligible : 0;
+    recentHasMore = settings.mode === 'recent' && moreRecent;
     pendingFormatCount = pendingFormats.length;
     const checkingPaused = pendingFormatCount && Date.now() < formatProbeCooldownUntil;
     const targetCount = Math.min(
@@ -347,10 +391,11 @@
     sync.append(refreshButton, status, detailsButton, detailText);
     toolbar.append(controls, sync);
     toolbar.append(node('div', 'ytrbg-stats',
-      counts.likes + ' likes · ' + counts.unseen + ' unseen candidates · ' +
+      counts.likes + ' likes · ' + counts.unseen + ' unseen in pool · ' +
+      (settings.mode === 'recent' ? recentTotal + ' eligible in Recent · ' : '') +
       (settings.discoveryOnly !== false ? 'Discovery sources only' : 'All sources') +
-      (pendingFormatCount ? ' · ' + pendingFormatCount + ' checking format' : '') +
-      (heldBack ? ' · ' + heldBack + ' older uploads held until sorted' : '')));
+      (pendingFormatCount ? ' · ' + pendingFormatCount + ' checking format in current window' : '') +
+      (heldBack ? ' · ' + heldBack + ' older uploads awaiting newer checks' : '')));
     children.push(toolbar);
     if (!recommendations.length) {
       const empty = node('section', 'ytrbg-empty');
@@ -410,7 +455,8 @@
     while (visibleCount < targetCount) appendPage();
     updatePagination();
     const sentinel = root.querySelector('.ytrbg-scroll-sentinel');
-    if (sentinel && visibleCount < rankedVideos.length && typeof IntersectionObserver !== 'undefined') {
+    if (sentinel && (visibleCount < rankedVideos.length || recentHasMore) &&
+        typeof IntersectionObserver !== 'undefined') {
       scrollObserver = new IntersectionObserver(entries => {
         if (entries.some(entry => entry.isIntersecting)) appendPage();
       }, { rootMargin: '450px 0px' });
@@ -430,7 +476,8 @@
     if (!enabled) { renderDisabled(); return; }
     const id = ++requestId;
     try {
-      const response = await send({ type: 'GET_RECOMMENDATIONS' });
+      const response = await send({ type: 'GET_RECOMMENDATIONS',
+        recentLimit: settings.mode === 'recent' ? recentWindow : undefined });
       if (id !== requestId || !enabled || !onHome()) return;
       const { ready, pending, heldBack } = globalThis.YTRBGShortsVisibility.splitCandidates(
         response.result.recommendations, settings.hideShorts !== false,
@@ -462,7 +509,10 @@
       }
       if (changes[SETTINGS_KEY]) {
         const next = { mode: 'personalized', ...(changes[SETTINGS_KEY].newValue || {}) };
-        if (next.mode !== settings.mode) visibleCount = 0;
+        if (next.mode !== settings.mode) {
+          visibleCount = 0;
+          recentWindow = RECENT_CHUNK;
+        }
         settings = next;
       }
       // Retry a detail lookup immediately after an upload import finishes;
