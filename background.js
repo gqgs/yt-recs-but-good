@@ -354,7 +354,9 @@ let refreshKickoffPromise = null;
 async function performCandidateRefresh(interactive) {
   try {
     const token = await getGoogleAccessToken({ interactive });
-    const subscriptions = await fetchSubscriptions(token);
+    // The hourly refresh rotates only through the first 200 subscriptions.
+    // Fetch at most four 50-item pages rather than all 2,000.
+    const subscriptions = await fetchSubscriptions(token, { maxPages: 4 });
     await importSubscriptions(subscriptions);
 
     // Scan a bounded, rotating slice rather than up to 200 upload playlists
