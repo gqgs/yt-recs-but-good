@@ -147,6 +147,7 @@
   }
   async function mark(video, type, rating) {
     const data = type === 'MARK_SEEN' ? { type, id: video.id } :
+      type === 'MARK_SHORT' ? { type, id: video.id, isShort: rating } :
       { type, id: video.id, rating, origin: 'home-feed' };
     await send(data);
     await refresh();
@@ -169,6 +170,12 @@
     const summary = node('summary', '', 'Why this video?');
     const explanation = node('p', '', video.reason || 'Selected by your local recommendation policy.');
     explain.append(summary, explanation);
+    // Manual format correction is not a dislike and does not affect the
+    // preference profile. It can be reversed after toggling Hide Shorts off.
+    const shortLabel = video.shortOverride === true ? 'Not a Short' : 'Mark as Short';
+    explain.append(button(shortLabel, 'ytrbg-short-label', () => {
+      mark(video, 'MARK_SHORT', video.shortOverride !== true).catch(showError);
+    }));
     const actions = node('div', 'ytrbg-actions');
     actions.append(button('Seen', '', () => {
       mark(video, 'MARK_SEEN').catch(showError);
