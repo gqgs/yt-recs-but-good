@@ -496,7 +496,7 @@ test('on-demand CDN thumbnail probe filters API-only /watch URL videos', async (
   assert.equal(probed.result.checked, 1);
   const state = (await message({ type: 'GET_STATE' })).state.items[id];
   assert.equal(state.shortsFormat, 'portrait');
-  assert.equal(state.shortsProbeSource, 'three-panel-image-v1');
+  assert.equal(state.shortsProbeSource, 'three-panel-image-v2');
   assert.equal(state.shortsProbeDiagnostic.variant, 'mqdefault');
   assert.equal(state.shortsProbeDiagnostic.reason, 'three-panel-match');
   assert.ok(state.shortsProbeDiagnostic.score >= .55);
@@ -519,7 +519,7 @@ test('three-panel thumbnail identifies known portrait candidate without CDN vari
   assert.equal(result.ok, true);
   assert.equal(result.result.portrait, 1);
   const state = (await message({ type: 'GET_STATE' })).state.items[id];
-  assert.equal(state.shortsProbeSource, 'three-panel-image-v1');
+  assert.equal(state.shortsProbeSource, 'three-panel-image-v2');
   assert.equal(state.shortsProbeDiagnostic.variant, 'mqdefault');
   assert.equal(state.shortsProbeDiagnostic.reason, 'three-panel-match');
   assert.equal(state.shortsFormat, 'portrait');
