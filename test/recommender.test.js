@@ -157,3 +157,17 @@ test('confirmed Shorts remain hidden even when include watched videos is enabled
   };
   assert.deepEqual(rankVideos(items, { showSeen: true }, NOW).map(v => v.id), ['ordinary']);
 });
+
+test('user can override Shorts classification without deleting candidates or changing likes', () => {
+  const items = {
+    candidate: video('candidate', 'Music demo', { isShort: true, sources: ['subscriptions'] })
+  };
+  assert.equal(rankVideos(items, {}, NOW).length, 0);
+  items.candidate.shortOverride = false;
+  assert.equal(rankVideos(items, {}, NOW).length, 1);
+  items.candidate.shortOverride = true;
+  assert.equal(rankVideos(items, {}, NOW).length, 0);
+  items.candidate.shortOverride = false;
+  items.candidate.isShort = false;
+  assert.equal(rankVideos(items, {}, NOW).length, 1);
+});
