@@ -1,7 +1,8 @@
 import { relativeAgeDays, rankVideos } from './lib/recommender.js';
 import { formatMetadataLine } from './lib/video-metadata.js';
 import { fetchLikedVideos, fetchSubscriptions, fetchUploads } from './lib/api-sync.js';
-import { normalizeTtlMinutes, shouldRefresh, formatRefreshAge } from './lib/refresh-policy.js';
+import { normalizeTtlMinutes, shouldRefresh, formatRefreshAge,
+  selectSubscriptionRefreshBatch, CHANNELS_PER_REFRESH, REFRESH_STALE_MS } from './lib/refresh-policy.js';
 import { getGoogleAccessToken, clearGoogleAccessToken, configuredGoogleClientId } from './lib/google-auth.js';
 
 // Privacy-first persistence and event log. All activity remains in chrome.storage.local.
@@ -9,8 +10,7 @@ const KEY = 'yt-recs-state-v1';
 const SETTINGS_KEY = 'yt-recs-settings-v1';
 const API_SYNC_KEY = 'yt-recs-api-sync-v1';
 const REFRESH_KEY = 'yt-recs-candidate-refresh-v1';
-const REFRESH_STALE_MS = 75_000;
-const CHANNELS_PER_REFRESH = 40;
+
 const PAUSED_KEY = 'yt-recs-collection-paused-v1';
 const MAX_ITEMS = 4000;
 const MAX_EVENTS = 1500;
@@ -360,13 +360,9 @@ async function performCandidateRefresh(interactive) {
     // Scan a bounded, rotating slice rather than up to 200 upload playlists
     // in one fragile MV3 service-worker lifetime. Every successful hour
     // advances through the subscription set.
-    const eligible = subscriptions.filter(s =>
-      /^UC[A-Za-z0-9_-]{22}$/.test(s.channelId)).slice(0, 200);
     const saved = (await chrome.storage.local.get(REFRESH_KEY))[REFRESH_KEY] || {};
-    const previousCursor = Number(saved.nextChannelIndex);
-    const start = Number.isInteger(previousCursor) && previousCursor >= 0 &&
-      previousCursor < eligible.length ? previousCursor : 0;
-    const batch = eligible.slice(start, start + CHANNELS_PER_REFRESH);
+    const { batch, start, total, nextChannelIndex } =
+      selectSubscriptionRefreshBatch(subscriptions, saved.nextChannelIndex);
     const newUploads = [];
     const summary = await fetchUploads(token, batch, {
       maxChannels: CHANNELS_PER_REFRESH, maxPerChannel: 5,
@@ -377,7 +373,7 @@ async function performCandidateRefresh(interactive) {
           await saveRefreshStatus({
             phase: 'running',
             message: 'Checking subscribed channels: ' +
-              (start + processed) + '/' + eligible.length,
+              (start + processed) + '/' + total,
             lastProgressAt: Date.now()
           });
         }
@@ -386,15 +382,13 @@ async function performCandidateRefresh(interactive) {
     const newlyFound = await importVideos('subscriptions', newUploads);
     const paused = (await chrome.storage.local.get(PAUSED_KEY))[PAUSED_KEY] === true;
     if (paused) return;
-    const nextChannelIndex = start + batch.length >= eligible.length
-      ? 0 : start + batch.length;
     await saveRefreshStatus({
       phase: 'ready',
       message: 'Checked ' + summary.checked + ' subscribed channels' +
         (summary.unavailable ? '; skipped ' + summary.unavailable +
           ' unavailable uploads playlists' : '') +
-        (eligible.length > batch.length ? ' (rotating through ' +
-          eligible.length + ' subscribed channels)' : ''),
+        (total > batch.length ? ' (rotating through ' +
+          total + ' subscribed channels)' : ''),
       lastSuccessAt: Date.now(),
       lastProgressAt: Date.now(),
       nextChannelIndex, channels: summary.checked,
