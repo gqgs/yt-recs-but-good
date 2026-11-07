@@ -201,3 +201,27 @@ test('old oEmbed portrait results are staged for new classification rather than 
   items.legacy.shortsProbeSource = 'oar2-frame0-jpeg-v2';
   assert.equal(rankVideos(items, {}, NOW).length, 0);
 });
+
+test('long-form portrait videos are never filtered by their vertical thumbnails', () => {
+  const items = {
+    first: video('first', 'Vertical car livestream', {
+      durationSeconds: 1431, shortsFormat: 'portrait',
+      shortsProbeSource: 'oar2-frame0-jpeg-v2', isShort: true,
+      sources: ['subscriptions']
+    }),
+    second: video('second', 'Portrait talk recorded for 48 minutes', {
+      durationSeconds: 2939, shortsFormat: 'portrait',
+      shortsProbeSource: 'oar2-frame0-jpeg-v2',
+      sources: ['subscriptions']
+    }),
+    clip: video('clip', 'Short vertical clip', {
+      durationSeconds: 75, shortsFormat: 'portrait',
+      shortsProbeSource: 'oar2-frame0-jpeg-v2',
+      sources: ['subscriptions']
+    })
+  };
+  const visible = rankVideos(items, {}, NOW).map(v => v.id).sort();
+  assert.deepEqual(visible, ['first', 'second']);
+  items.first.shortOverride = true;
+  assert.deepEqual(rankVideos(items, {}, NOW).map(v => v.id), ['second']);
+});
