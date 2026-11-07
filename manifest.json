@@ -10,7 +10,8 @@
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
-    "https://www.googleapis.com/*"
+    "https://www.googleapis.com/*",
+    "https://i.ytimg.com/*"
   ],
   "action": {
     "default_title": "yt-recs-but-good",
