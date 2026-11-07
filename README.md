@@ -215,78 +215,80 @@ fabricated. Existing stored video records gain duration on subsequent API
 refreshes or when the relevant video appears again in YouTube's page markup;
 there is **no need to delete the local recommendation cache**.
 
-## Shorts classification before display
+## Recent means chronological
 
-The curated Home **stages uncertain candidates before rendering** whenever
-Hide Shorts is enabled. Previously, portrait clips briefly appeared before
-a slower asynchronous format check removed them. Verified recommendations
-appear immediately, while unverified candidates remain withheld until
-classification finishes or reports an inconclusive result.
+The **Recent** feed is now ordered strictly by publication time (most
+recent first). It **does not** apply the diversification or per-channel caps
+used by **For you** and **Explore**, which could previously promote older
+videos ahead of genuinely recent uploads.
 
-The popup follows the same eligibility policy. If a probe fails or the
-request budget is temporarily exhausted, the UI reports that verification
-is pending instead of showing potential Shorts prematurely. A one-shot
-retry follows the cooldown; no data deletion is necessary.
+When Hide Shorts is enabled, the Recent feed also preserves chronological
+order across asynchronous format checks: an older cached video cannot be
+promoted above an earlier, as-yet-unclassified video. The latter is checked
+offscreen before being shown or discarded. The UI reports pending format
+checks rather than falsely implying an older video is the newest upload.
 
-## Hide Shorts and portrait clips (default: enabled)
+## Thumbnail-based Shorts classification (default: enabled)
 
-The extension's **Hide Shorts and portrait clips (best effort)** option in
-**Tune** is enabled by default. Turning it off immediately restores all
-otherwise eligible candidates.
+The **Hide Shorts and portrait clips (best effort)** setting under **Tune**
+is enabled by default. The extension now uses a **local, lightweight image
+classifier** instead of relying on YouTube's oEmbed or portrait CDN variants:
 
-Classification uses multiple signals:
+1. Videos longer than **three minutes** are eligible regardless of portrait
+   thumbnail structure. Existing explicit Shorts metadata and manual
+   **Mark as Short / Not a Short** overrides are preserved.
+2. For unclassified shorter videos, the Manifest V3 service worker fetches
+   the existing landscape thumbnail
+   `https://i.ytimg.com/vi/<video-id>/mqdefault.jpg`, decodes it into a
+   hidden **128×72 OffscreenCanvas**, and extracts grayscale edge and texture
+   features. This is equivalent to preloading a hidden image, but avoids
+   inserting temporary thumbnail elements into the YouTube page and avoids
+   canvas cross-origin issues in content scripts.
+3. The classifier looks for **paired vertical boundaries** roughly one-third
+   and two-thirds across the thumbnail, a narrow central region, and darker or
+   less textured surrounding panels. The decision threshold is conservative
+   and can be tuned against labeled examples.
+4. A match is hidden from the feed; a normal or inconclusive result is eligible.
+   Unverified cards are held back until the local check completes, so Shorts
+   should not appear briefly before disappearing.
 
-1. **Explicit Shorts evidence** from YouTube links/card markup, creator
-   hashtags, and Shorts-specific thumbnail metadata.
-2. **A portrait-thumbnail CDN request** for uncertain candidates:
-   `https://i.ytimg.com/vi/<video-id>/oar2.jpg`. The extension requests
-   the first 32 KiB of the JPEG (the CDN may ignore the byte range), parses
-   the JPEG header for actual dimensions, and classifies a portrait aspect
-   ratio of at least 1.4 as likely vertical short-form content. When `oar2`
-   specifically returns HTTP 404, it makes **one conditional fallback request**
-   to `frame0.jpg`. Successful `oar2` checks still require only one request.
-3. **Manual corrections** via **Why this video? → Mark as Short / Not a Short**.
-   Explicit user labels override automatic signals without changing likes.
+Each new candidate needs at most one thumbnail request, often served from
+the browser's cache. This does **not** consume YouTube Data API quota.
+Checks are limited to **12 displayed candidates per batch**, four concurrent
+requests, and a safeguard of **300 per 10 minutes**. Images are never sent
+to any model or external classifier; pixels are processed locally.
 
-A CDN format check is normally **one GET per newly checked video**, and only
-an `oar2` 404 triggers a second `frame0` request. These requests consume no
-YouTube Data API quota. A successful HTTP response alone isn't enough:
-normal videos can also have `oar2.jpg` thumbnails. A missing image may
-return HTTP 404 with a small JPEG placeholder, so the response status is
-checked before parsing dimensions. Network errors, invalid images and
-timeouts return *unknown* rather than falsely identifying Shorts.
+Successful classifications are cached for **30 days**, inconclusive results
+for **six hours**. The new `three-panel-image-v1` version key invalidates
+older oEmbed/CDN classifications without deleting your video records, likes,
+manual labels, or viewing history. Existing duration metadata remains valid.
 
-Five user-reported misses were checked against the real CDN on November 7,
-2026. Four returned `1080×1920` from `oar2`; the fifth
-(`uo5VU-KtUZk`) returned 404 for `oar2` but `268×480` from `frame0`.
-These regression cases motivate the fallback; they are **not** a guarantee
-that every Shorts video exposes one of the variants.
+**Known limitations:** This classifier is not an official Shorts identifier:
+some three-panel split-screen thumbnails may be false positives, while
+some Shorts use nonstandard thumbnails and can be missed. The three-minute
+duration safeguard prevents falsely hiding longer portrait videos. If a
+candidate is misclassified, use **Why this video? → Not a Short** after turning
+off Hide Shorts in **Tune**; that correction doesn't train the preference model.
 
-For debugging, expand **Why this video?** beneath a recommendation. The
-**Format check** line reports the selected variant, HTTP status, dimensions
-and any error reason, without exposing account credentials. To independently
-inspect public CDN variants for specific video IDs on your machine:
+### Benchmarking against a labeled image collection
+
+The repository includes an **interactive offline benchmark** that accepts
+local image files under two sibling folders named `shorts/` and `normal/`.
+Images remain on your machine, and the benchmark uses the **same classifier
+module** as the extension.
+
+From the repository root:
 
 ```bash
-node scripts/diagnose-shorts.mjs EZy9KqeQKrA HlhOrCrn7vk zzITiIxxD8c -prSdejMkaI uo5VU-KtUZk
+python -m http.server 8765
 ```
 
-Results are cached in local video records: verified portrait/landscape
-classifications last **30 days**, inconclusive outcomes **6 hours**.
-Format checks are limited to 12 candidates at a time, four concurrent
-requests and 48 requests per 10-minute browser-session window. Each request
-has a 6.5-second deadline.
-
-The previous oEmbed and first-generation `oar2` classifications are
-automatically rechecked with the versioned `oar2-frame0-jpeg-v2` method on
-first use, without clearing preferences, watch history, or the candidate cache.
-
-**Limitations:** Portrait format is not an official Shorts flag. A
-regular portrait video with unknown duration may still be excluded, and some
-Shorts may remain eligible when a CDN variant is absent or unexpected.
-Known videos longer than three minutes bypass the portrait-based filter.
-Duration alone is **never** used to call a short video a Short. The option
-does not hide native Shorts shelves outside the curated recommender.
+Visit `http://localhost:8765/scripts/benchmark-thumbnails.html`, extract
+your labeled archive locally, and select the parent directory containing
+the `shorts` and `normal` folders. It reports precision, recall,
+specificity, accuracy, false positives/negatives, and per-image feature
+scores. The threshold slider allows validating the precision/recall tradeoff.
+No image uploads or API access are involved.
 
 ## Discovery and repeat filtering
 
