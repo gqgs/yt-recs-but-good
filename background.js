@@ -716,11 +716,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         v.candidate && !v.watchedAt && !v.visitedAt && !v.hasResume &&
         v.feedback !== 'like' && v.feedback !== 'less').length;
       const paused = (await chrome.storage.local.get(PAUSED_KEY))[PAUSED_KEY] === true;
+      // Include recently observed API candidates even if the portrait heuristic
+      // has hidden them: knowing their actual long-form duration can restore
+      // falsely excluded portrait videos.
+      const detailCandidates = items.filter(v =>
+        v.candidate && v.feedback !== 'less' && !v.watchedAt && !v.visitedAt &&
+        (!Number.isSafeInteger(v.durationSeconds) || v.durationSeconds <= 0 ||
+         v.viewCount === null || v.viewCount === undefined))
+        .sort((a, b) => (b.lastSeenAt || 0) - (a.lastSeenAt || 0))
+        .slice(0, 50).map(v => v.id);
       return { recommendations: rankVideos(state.items, settings).map(video => ({
         ...video, metadataLine: formatMetadataLine(video)
       })),
         paused, refresh: await refreshDetails(paused),
         detailStatus: (await chrome.storage.local.get(DETAILS_KEY))[DETAILS_KEY] || {},
+        detailCandidates,
         counts: { likes, unseen, candidates: items.filter(v => v.candidate).length } };
     }).then(result => reply({ ok: true, result }),
       e => reply({ ok: false, error: String(e) }));
