@@ -175,7 +175,7 @@ test('user can override Shorts classification without deleting candidates or cha
 test('CDN portrait JPEG is filtered even when the only video URL is /watch', () => {
   const items = {
     portrait: video('portrait', 'Vertical music clip', {
-      shortsFormat: 'portrait', shortsProbeSource: 'three-panel-image-v1', url: 'https://www.youtube.com/watch?v=abcdefghijk',
+      shortsFormat: 'portrait', shortsProbeSource: 'three-panel-image-v2', url: 'https://www.youtube.com/watch?v=abcdefghijk',
       sources: ['subscriptions']
     }),
     regular: video('regular', 'Ordinary short documentary', {
@@ -198,7 +198,7 @@ test('old oEmbed portrait results are staged for new classification rather than 
     })
   };
   assert.equal(rankVideos(items, {}, NOW).length, 1);
-  items.legacy.shortsProbeSource = 'three-panel-image-v1';
+  items.legacy.shortsProbeSource = 'three-panel-image-v2';
   assert.equal(rankVideos(items, {}, NOW).length, 0);
 });
 
@@ -206,17 +206,17 @@ test('long-form portrait videos are never filtered by their vertical thumbnails'
   const items = {
     first: video('first', 'Vertical car livestream', {
       durationSeconds: 1431, shortsFormat: 'portrait',
-      shortsProbeSource: 'three-panel-image-v1', isShort: true,
+      shortsProbeSource: 'three-panel-image-v2', isShort: true,
       sources: ['subscriptions']
     }),
     second: video('second', 'Portrait talk recorded for 48 minutes', {
       durationSeconds: 2939, shortsFormat: 'portrait',
-      shortsProbeSource: 'three-panel-image-v1',
+      shortsProbeSource: 'three-panel-image-v2',
       sources: ['subscriptions']
     }),
     clip: video('clip', 'Short vertical clip', {
       durationSeconds: 75, shortsFormat: 'portrait',
-      shortsProbeSource: 'three-panel-image-v1',
+      shortsProbeSource: 'three-panel-image-v2',
       sources: ['subscriptions']
     })
   };
