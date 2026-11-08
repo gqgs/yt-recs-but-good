@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { THUMBNAIL_CLASSIFIER_SOURCE } from '../lib/thumbnail-classifier.js';
 import {
   thumbnailProbeUrl, probeVideoFormat, probeVideoFormatDetails,
   probeFormatBatchDetails, SHORTS_PROBE_SOURCE,
@@ -20,7 +21,7 @@ function response(label = 'positive', status = 200) {
 const decode = async blob => blob.label === 'positive' ? positive : negative;
 
 test('single request loads existing landscape thumbnail for local image classification', async () => {
-  assert.equal(SHORTS_PROBE_SOURCE, 'three-panel-image-v2');
+  assert.equal(SHORTS_PROBE_SOURCE, THUMBNAIL_CLASSIFIER_SOURCE);
   assert.equal(thumbnailProbeUrl('abcdefghijk'),
     'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg');
   assert.throws(() => thumbnailProbeUrl('too-long-video-identifier'), /Invalid/);
