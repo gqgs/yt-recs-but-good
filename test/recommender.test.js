@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tokenize, cosine, preferenceProfile, relativeAgeDays, rankVideos, validVideoTitle, effectivePublishedAt, isConfirmedShort, recentFeedPage, eligibleForRecommendations } from '../lib/recommender.js';
+import { THUMBNAIL_CLASSIFIER_SOURCE } from '../lib/thumbnail-classifier.js';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 function video(id, title, extra = {}) {
@@ -175,7 +176,7 @@ test('user can override Shorts classification without deleting candidates or cha
 test('CDN portrait JPEG is filtered even when the only video URL is /watch', () => {
   const items = {
     portrait: video('portrait', 'Vertical music clip', {
-      shortsFormat: 'portrait', shortsProbeSource: 'three-panel-image-v2', url: 'https://www.youtube.com/watch?v=abcdefghijk',
+      shortsFormat: 'portrait', shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE, url: 'https://www.youtube.com/watch?v=abcdefghijk',
       sources: ['subscriptions']
     }),
     regular: video('regular', 'Ordinary short documentary', {
@@ -199,6 +200,8 @@ test('old oEmbed portrait results are staged for new classification rather than 
   };
   assert.equal(rankVideos(items, {}, NOW).length, 1);
   items.legacy.shortsProbeSource = 'three-panel-image-v2';
+  assert.equal(rankVideos(items, {}, NOW).length, 1);
+  items.legacy.shortsProbeSource = THUMBNAIL_CLASSIFIER_SOURCE;
   assert.equal(rankVideos(items, {}, NOW).length, 0);
 });
 
@@ -206,17 +209,17 @@ test('long-form portrait videos are never filtered by their vertical thumbnails'
   const items = {
     first: video('first', 'Vertical car livestream', {
       durationSeconds: 1431, shortsFormat: 'portrait',
-      shortsProbeSource: 'three-panel-image-v2', isShort: true,
+      shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE, isShort: true,
       sources: ['subscriptions']
     }),
     second: video('second', 'Portrait talk recorded for 48 minutes', {
       durationSeconds: 2939, shortsFormat: 'portrait',
-      shortsProbeSource: 'three-panel-image-v2',
+      shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE,
       sources: ['subscriptions']
     }),
     clip: video('clip', 'Short vertical clip', {
       durationSeconds: 75, shortsFormat: 'portrait',
-      shortsProbeSource: 'three-panel-image-v2',
+      shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE,
       sources: ['subscriptions']
     })
   };
