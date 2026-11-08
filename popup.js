@@ -176,7 +176,7 @@ function render() {
   results.replaceChildren();
   const { ready: ranked, pending, heldBack } = globalThis.YTRBGShortsVisibility.splitCandidates(
     snapshot.recommendations || [], settings.hideShorts !== false,
-    Date.now(), settings.mode);
+    Date.now(), settings.mode, snapshot.shortsProbeSource);
   if (!ranked.length) {
     results.append(element('div', 'empty', paused
       ? 'Collection is paused after deleting all data. Resume it explicitly when ready.'
