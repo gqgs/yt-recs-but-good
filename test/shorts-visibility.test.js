@@ -2,11 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+import { THUMBNAIL_CLASSIFIER_SOURCE } from '../lib/thumbnail-classifier.js';
 
 const sandbox = {};
 sandbox.globalThis = sandbox;
 runInNewContext(readFileSync(new URL('../lib/shorts-visibility.js', import.meta.url), 'utf8'), sandbox);
-const { needsFormatCheck, splitCandidates } = sandbox.YTRBGShortsVisibility;
+const visibility = sandbox.YTRBGShortsVisibility;
+// Exercise the same source-version contract that Home receives from the worker.
+const needsFormatCheck = (video, now) =>
+  visibility.needsFormatCheck(video, now, THUMBNAIL_CLASSIFIER_SOURCE);
+const splitCandidates = (videos, hideShorts = true, now = Date.now(), mode = 'personalized') =>
+  visibility.splitCandidates(videos, hideShorts, now, mode, THUMBNAIL_CLASSIFIER_SOURCE);
 
 const NOW = Date.parse('2026-11-07T12:00:00Z');
 function candidate(id, extra = {}) {
@@ -16,8 +22,8 @@ function candidate(id, extra = {}) {
 
 test('unclassified candidates are withheld until the format result arrives', () => {
   const videos = [candidate('unverified'),
-    candidate('landscape', { shortsFormat: 'landscape', shortsProbedAt: NOW - 1000, shortsProbeSource: 'three-panel-image-v2' }),
-    candidate('unknown', { shortsFormat: 'unknown', shortsProbedAt: NOW - 1000, shortsProbeSource: 'three-panel-image-v2' })];
+    candidate('landscape', { shortsFormat: 'landscape', shortsProbedAt: NOW - 1000, shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE }),
+    candidate('unknown', { shortsFormat: 'unknown', shortsProbedAt: NOW - 1000, shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE })];
   const { ready, pending } = splitCandidates(videos, true, NOW);
   assert.deepEqual(ready.map(v => v.id).join(','), 'landscape,unknown');
   assert.deepEqual(pending.map(v => v.id).join(','), 'unverified');
@@ -30,7 +36,10 @@ test('further format classification never requires a destructive cache reset', (
   item.shortsFormat = 'landscape';
   item.shortsProbedAt = NOW;
   item.shortsProbeSource = 'three-panel-image-v2';
+  assert.equal(needsFormatCheck(item, NOW), true);
+  item.shortsProbeSource = THUMBNAIL_CLASSIFIER_SOURCE;
   assert.equal(needsFormatCheck(item, NOW), false);
+  assert.equal(visibility.needsFormatCheck(item, NOW), true);
 });
 
 test('disabled filter and user overrides never defer videos', () => {
@@ -48,22 +57,22 @@ test('disabled filter and user overrides never defer videos', () => {
 
 test('stale unknowns and stale landscapes are withheld for revalidation', () => {
   assert.equal(needsFormatCheck(candidate('unknown', {
-    shortsFormat: 'unknown', shortsProbedAt: NOW - 7 * 3600_000, shortsProbeSource: 'three-panel-image-v2'
+    shortsFormat: 'unknown', shortsProbedAt: NOW - 7 * 3600_000, shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE
   }), NOW), true);
   assert.equal(needsFormatCheck(candidate('fresh', {
-    shortsFormat: 'unknown', shortsProbedAt: NOW - 5 * 3600_000, shortsProbeSource: 'three-panel-image-v2'
+    shortsFormat: 'unknown', shortsProbedAt: NOW - 5 * 3600_000, shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE
   }), NOW), false);
   assert.equal(needsFormatCheck(candidate('old', {
-    shortsFormat: 'landscape', shortsProbedAt: NOW - 31 * 86400_000, shortsProbeSource: 'three-panel-image-v2'
+    shortsFormat: 'landscape', shortsProbedAt: NOW - 31 * 86400_000, shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE
   }), NOW), true);
   assert.equal(needsFormatCheck(candidate('current', {
-    shortsFormat: 'landscape', shortsProbedAt: NOW - 29 * 86400_000, shortsProbeSource: 'three-panel-image-v2'
+    shortsFormat: 'landscape', shortsProbedAt: NOW - 29 * 86400_000, shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE
   }), NOW), false);
 });
 
 test('portrait results are already excluded by ranking and do not need reprobes', () => {
   const portrait = candidate('portrait', {
-    shortsFormat: 'portrait', shortsProbedAt: NOW, shortsProbeSource: 'three-panel-image-v2'
+    shortsFormat: 'portrait', shortsProbedAt: NOW, shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE
   });
   assert.equal(needsFormatCheck(portrait, NOW), false);
 });
@@ -101,10 +110,10 @@ test('Recent does not promote older cached entries ahead of newer pending upload
     candidate('newest', { publishedAt: NOW - 1800000 }),
     candidate('older1', { publishedAt: NOW - 3600000,
       shortsFormat: 'landscape', shortsProbedAt: NOW,
-      shortsProbeSource: 'three-panel-image-v2' }),
+      shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE }),
     candidate('older2', { publishedAt: NOW - 7200000,
       shortsFormat: 'landscape', shortsProbedAt: NOW,
-      shortsProbeSource: 'three-panel-image-v2' })
+      shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE })
   ];
   const result = splitCandidates(candidates, true, NOW, 'recent');
   assert.equal(result.ready.length, 0);
@@ -112,7 +121,7 @@ test('Recent does not promote older cached entries ahead of newer pending upload
   assert.equal(result.heldBack, 2);
   assert.equal(splitCandidates(candidates, true, NOW, 'personalized').ready.length, 2);
   candidates[0].shortsFormat = 'landscape';
-  candidates[0].shortsProbeSource = 'three-panel-image-v2';
+  candidates[0].shortsProbeSource = THUMBNAIL_CLASSIFIER_SOURCE;
   candidates[0].shortsProbedAt = NOW;
   assert.equal(splitCandidates(candidates, true, NOW, 'recent').ready.length, 3);
 });
