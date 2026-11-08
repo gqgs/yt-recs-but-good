@@ -51,6 +51,8 @@ test('Home splits uncertain candidates before rendering the grid', () => {
   assert.match(home, /pendingFormatCount \? \(checkingPaused/);
   assert.match(home, /'Checking video formats'/);
   assert.match(home, /probeFormats\(pendingFormats\)/);
+  assert.match(home, /settings\.mode, currentShortsProbeSource/);
+  assert.match(home, /response\.result\.shortsProbeSource/);
 });
 
 test('a suspended Shorts probe shows an honest waiting state instead of permanent checking', () => {

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { THUMBNAIL_CLASSIFIER_SOURCE, SAMPLE_WIDTH, SAMPLE_HEIGHT } from '../lib/thumbnail-classifier.js';
 
 const VID_A = 'abcdefghijk';
 const VID_B = 'lmnopqrstuv';
@@ -16,7 +17,7 @@ const oldChrome = globalThis.chrome;
 const oldFetch = globalThis.fetch;
 const oldBitmap = globalThis.createImageBitmap;
 const oldCanvas = globalThis.OffscreenCanvas;
-const SIZE = { width: 128, height: 72 };
+const SIZE = { width: SAMPLE_WIDTH, height: SAMPLE_HEIGHT };
 function makeThumbnailPixels(portrait) {
   const { width: w, height: h } = SIZE;
   const data = new Uint8ClampedArray(w * h * 4);
@@ -491,12 +492,13 @@ test('on-demand CDN thumbnail probe filters API-only /watch URL videos', async (
   }] });
   const before = (await message({ type: 'GET_RECOMMENDATIONS' })).result;
   assert.equal(before.recommendations.some(v => v.id === id), true);
+  assert.equal(before.shortsProbeSource, THUMBNAIL_CLASSIFIER_SOURCE);
   const probed = await message({ type: 'PROBE_SHORTS_FORMAT', ids: [id] });
   assert.equal(probed.ok, true);
   assert.equal(probed.result.checked, 1);
   const state = (await message({ type: 'GET_STATE' })).state.items[id];
   assert.equal(state.shortsFormat, 'portrait');
-  assert.equal(state.shortsProbeSource, 'three-panel-image-v2');
+  assert.equal(state.shortsProbeSource, THUMBNAIL_CLASSIFIER_SOURCE);
   assert.equal(state.shortsProbeDiagnostic.variant, 'mqdefault');
   assert.equal(state.shortsProbeDiagnostic.reason, 'three-panel-match');
   assert.ok(state.shortsProbeDiagnostic.score >= .55);
@@ -519,7 +521,7 @@ test('three-panel thumbnail identifies known portrait candidate without CDN vari
   assert.equal(result.ok, true);
   assert.equal(result.result.portrait, 1);
   const state = (await message({ type: 'GET_STATE' })).state.items[id];
-  assert.equal(state.shortsProbeSource, 'three-panel-image-v2');
+  assert.equal(state.shortsProbeSource, THUMBNAIL_CLASSIFIER_SOURCE);
   assert.equal(state.shortsProbeDiagnostic.variant, 'mqdefault');
   assert.equal(state.shortsProbeDiagnostic.reason, 'three-panel-match');
   assert.equal(state.shortsFormat, 'portrait');

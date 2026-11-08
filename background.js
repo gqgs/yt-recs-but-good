@@ -686,6 +686,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         ...video, metadataLine: formatMetadataLine(video)
       }));
       return { counts: { liked, candidates, unseen }, recommendations,
+        shortsProbeSource: SHORTS_PROBE_SOURCE,
         paused: stored[PAUSED_KEY] === true,
         detailStatus: (await chrome.storage.local.get(DETAILS_KEY))[DETAILS_KEY] || {},
         refresh: await refreshDetails(stored[PAUSED_KEY] === true) };
@@ -739,6 +740,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       })),
         recentTotal: feed.totalEligible, recentHasMore: feed.hasMore,
         recentWindow: settings.mode === 'recent' ? recentWindow : null,
+        shortsProbeSource: SHORTS_PROBE_SOURCE,
         paused, refresh: await refreshDetails(paused),
         detailStatus: (await chrome.storage.local.get(DETAILS_KEY))[DETAILS_KEY] || {},
         detailCandidates,

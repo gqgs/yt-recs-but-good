@@ -24,6 +24,8 @@
   let formatProbeCooldownUntil = 0;
   let formatProbeRetryTimer = null;
   let pendingFormatCount = 0;
+  // Received from the worker so cache validation follows classifier revisions.
+  let currentShortsProbeSource = null;
   let detailsInFlight = false;
   let lastDetailsRequestAt = 0;
   let detailsCandidateIds = [];
@@ -265,7 +267,7 @@
     const markedShort = video.shortOverride === undefined
       ? Boolean(video.isShort ||
         (video.shortsFormat === 'portrait' &&
-         video.shortsProbeSource === 'three-panel-image-v2'))
+         currentShortsProbeSource && video.shortsProbeSource === currentShortsProbeSource))
       : video.shortOverride;
     explain.append(button(markedShort ? 'Not a Short' : 'Mark as Short',
       'ytrbg-short-label', () => {
@@ -488,9 +490,10 @@
       const response = await send({ type: 'GET_RECOMMENDATIONS',
         recentLimit: settings.mode === 'recent' ? recentWindow : undefined });
       if (id !== requestId || !enabled || !onHome()) return;
+      currentShortsProbeSource = response.result.shortsProbeSource || null;
       const { ready, pending, heldBack } = globalThis.YTRBGShortsVisibility.splitCandidates(
         response.result.recommendations, settings.hideShorts !== false,
-        Date.now(), settings.mode);
+        Date.now(), settings.mode, currentShortsProbeSource);
       detailsCandidateIds = response.result.detailCandidates || [];
       render({ ...response.result, recommendations: ready, pendingFormats: pending,
         heldBack });
