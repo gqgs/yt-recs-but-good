@@ -42,11 +42,12 @@ test('rejects missing or malformed image pixel buffers without guessing', () => 
 test('classifier output includes bounded diagnostics for tuning', () => {
   const item = classifyThumbnail(synthetic({ panels: true }));
   assert.ok(item.score >= 0 && item.score <= 1);
-  assert.equal(typeof item.features.brightnessGap, 'number');
-  assert.equal(typeof item.features.edgeRatio, 'number');
-  assert.equal(typeof item.checks.panelEdges, 'boolean');
-  assert.equal(typeof item.checks.panelContrast, 'boolean');
-  assert.equal(typeof item.checks.sideBalance, 'boolean');
+  assert.equal(typeof item.features.sharpnessRatio, 'number');
+  assert.equal(typeof item.features.stepLeft, 'number');
+  assert.equal(typeof item.features.centerSharpness, 'number');
+  assert.equal(typeof item.checks.sharpnessContrast, 'boolean');
+  assert.equal(typeof item.checks.boundarySteps, 'boolean');
+  assert.equal(typeof item.checks.centerHasDetail, 'boolean');
   assert.equal(typeof item.checks.minimumScore, 'boolean');
   assert.deepEqual(item.failedChecks, Object.keys(item.checks).filter(k => !item.checks[k]));
 });
@@ -55,5 +56,5 @@ test('threshold alone never bypasses the three-panel safety gates', () => {
   const result = classifyThumbnail(synthetic({ uniform: true }), { minScore: 0.3 });
   assert.equal(result.format, 'landscape');
   assert.ok(result.failedChecks.length > 0);
-  assert.equal(result.checks.panelEdges, false);
+  assert.equal(result.checks.sharpnessContrast, false);
 });
