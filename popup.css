@@ -49,6 +49,8 @@ h2{font-size:14px;margin:0;letter-spacing:-.25px}
 .video-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;background:transparent;border:0;padding:0;text-align:left;font-weight:700;font-size:12px;color:#f3f2fa;line-height:1.33}
 .video-title:hover{text-decoration:underline}
 .meta{color:#a0a2ad;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.channel-name{color:inherit;text-decoration:none}
+a.channel-name:hover,a.channel-name:focus-visible{color:#f3f2fa;text-decoration:underline}
 .why{color:#b4a5ff;font-size:10px;line-height:1.3}
 .feed-actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:2px}
 .feed-actions button{padding:4px 6px;border-radius:5px;border:1px solid #383944;background:#20212b;color:#bcbfce;font-size:10px}

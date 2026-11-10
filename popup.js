@@ -133,7 +133,21 @@ function renderVideo(video, index) {
   const title = button(video.title, 'video-title', () => open(video.url));
   title.title = video.title;
   info.append(title);
-  info.append(element('div', 'meta', [video.channel, formatMetadataLine(video)].filter(Boolean).join(' · ') || 'YouTube'));
+  const meta = element('div', 'meta');
+  if (video.channel) {
+    const channelUrl = globalThis.YTRBGChannelLink.channelUrl(video.channelId);
+    const channel = element(channelUrl ? 'a' : 'span', 'channel-name', video.channel);
+    if (channelUrl) {
+      channel.href = channelUrl;
+      channel.target = '_blank';
+      channel.rel = 'noopener noreferrer';
+    }
+    meta.append(channel);
+  }
+  const metadataLine = formatMetadataLine(video);
+  if (metadataLine) meta.append(element('span', '', (video.channel ? ' · ' : '') + metadataLine));
+  if (!video.channel && !metadataLine) meta.textContent = 'YouTube';
+  info.append(meta);
   info.append(element('div', 'why', video.reason || 'Discovered while browsing'));
   const actions = element('div', 'feed-actions');
   actions.append(
