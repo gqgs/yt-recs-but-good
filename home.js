@@ -248,7 +248,10 @@
     }
     const title = link(video.title, video.url, 'ytrbg-title');
     title.title = video.title;
-    const channel = node('div', 'ytrbg-channel', video.channel || 'Channel unavailable');
+    const channelUrl = globalThis.YTRBGChannelLink.channelUrl(video.channelId);
+    const channel = video.channel && channelUrl
+      ? link(video.channel, channelUrl, 'ytrbg-channel')
+      : node('div', 'ytrbg-channel', video.channel || 'Channel unavailable');
     const meta = node('div', 'ytrbg-meta', video.metadataLine || '');
     const explain = node('details', 'ytrbg-why');
     const summary = node('summary', '', 'Why this video?');

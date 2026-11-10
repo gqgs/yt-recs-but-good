@@ -104,7 +104,8 @@ html.ytrbg-home-active ytd-browse[page-subtype="home"] ytd-rich-grid-renderer {
 #ytrbg-home .ytrbg-load-more:hover{background:var(--yt-spec-10-percent-layer,#333)}
 #ytrbg-home .ytrbg-scroll-sentinel{height:1px;width:100%}
 
-#ytrbg-home .ytrbg-channel{font-size:13px;color:var(--yt-spec-text-secondary,#aaa);line-height:1.42;font-weight:500;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#ytrbg-home .ytrbg-channel{display:block;width:fit-content;max-width:100%;font-size:13px;color:var(--yt-spec-text-secondary,#aaa);line-height:1.42;font-weight:500;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none}
+#ytrbg-home a.ytrbg-channel:hover,#ytrbg-home a.ytrbg-channel:focus-visible{color:var(--yt-spec-text-primary,#fff);text-decoration:underline}
 #ytrbg-home .ytrbg-meta:empty{display:none}
 
 /* Keep the native-feed toggle inside the lower control bar, safely below
