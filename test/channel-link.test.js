@@ -49,6 +49,7 @@ class Element {
     this.tagName = tagName.toUpperCase();
     this.children = [];
     this.attributes = {};
+    this.dataset = {};
     this.listeners = {};
     this.textContent = '';
   }

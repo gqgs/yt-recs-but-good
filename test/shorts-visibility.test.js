@@ -11,8 +11,8 @@ const visibility = sandbox.YTRBGShortsVisibility;
 // Exercise the same source-version contract that Home receives from the worker.
 const needsFormatCheck = (video, now) =>
   visibility.needsFormatCheck(video, now, THUMBNAIL_CLASSIFIER_SOURCE);
-const splitCandidates = (videos, hideShorts = true, now = Date.now(), mode = 'personalized') =>
-  visibility.splitCandidates(videos, hideShorts, now, mode, THUMBNAIL_CLASSIFIER_SOURCE);
+const splitCandidates = (videos, hideShorts = true, now = Date.now()) =>
+  visibility.splitCandidates(videos, hideShorts, now, THUMBNAIL_CLASSIFIER_SOURCE);
 
 const NOW = Date.parse('2026-11-07T12:00:00Z');
 function candidate(id, extra = {}) {
@@ -105,7 +105,7 @@ test('duration badges use expected formatting', () => {
   assert.equal(sandbox.YTRBGShortsVisibility.formatDuration(null), '');
 });
 
-test('Recent does not promote older cached entries ahead of newer pending uploads', () => {
+test('Recent presents ready uploads without waiting for a newer pending format', () => {
   const candidates = [
     candidate('newest', { publishedAt: NOW - 1800000 }),
     candidate('older1', { publishedAt: NOW - 3600000,
@@ -115,13 +115,12 @@ test('Recent does not promote older cached entries ahead of newer pending upload
       shortsFormat: 'landscape', shortsProbedAt: NOW,
       shortsProbeSource: THUMBNAIL_CLASSIFIER_SOURCE })
   ];
-  const result = splitCandidates(candidates, true, NOW, 'recent');
-  assert.equal(result.ready.length, 0);
+  const result = splitCandidates(candidates, true, NOW);
+  assert.deepEqual(result.ready.map(v => v.id).join(','), 'older1,older2');
   assert.deepEqual(result.pending.map(v => v.id).join(','), 'newest');
-  assert.equal(result.heldBack, 2);
-  assert.equal(splitCandidates(candidates, true, NOW, 'personalized').ready.length, 2);
   candidates[0].shortsFormat = 'landscape';
   candidates[0].shortsProbeSource = THUMBNAIL_CLASSIFIER_SOURCE;
   candidates[0].shortsProbedAt = NOW;
-  assert.equal(splitCandidates(candidates, true, NOW, 'recent').ready.length, 3);
+  assert.deepEqual(splitCandidates(candidates, true, NOW).ready.map(v => v.id).join(','),
+    'newest,older1,older2');
 });

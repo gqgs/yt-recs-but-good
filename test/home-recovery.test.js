@@ -45,13 +45,13 @@ test('Home schedules a recovery status check if an in-flight refresh stops updat
 
 test('Home splits uncertain candidates before rendering the grid', () => {
   const split = home.indexOf('YTRBGShortsVisibility.splitCandidates(');
-  const render = home.indexOf('render({ ...response.result, recommendations: ready, pendingFormats: pending,');
+  const render = home.indexOf('render({ ...response.result, recommendations: ready, pendingFormats: pending');
   assert.ok(split > 0 && render > split);
   assert.doesNotMatch(home, /probeFormats\(appended\)/);
   assert.match(home, /pendingFormatCount \? \(checkingPaused/);
   assert.match(home, /'Checking video formats'/);
   assert.match(home, /probeFormats\(pendingFormats\)/);
-  assert.match(home, /settings\.mode, currentShortsProbeSource/);
+  assert.match(home, /Date\.now\(\), currentShortsProbeSource/);
   assert.match(home, /response\.result\.shortsProbeSource/);
 });
 
@@ -105,4 +105,24 @@ test('For you and Explore distinguish a finite recommendation shortlist from the
 test('Recent header distinguishes eligible inventory outside the current window', () => {
   assert.match(home, /recentTotal - recentWindow/);
   assert.match(home, /outsideWindow \+ ' outside loaded window/);
+});
+
+test('Recent anchors the visible card when a newly verified upload inserts above it', async () => {
+  const { runInNewContext } = await import('node:vm');
+  const beginning = home.indexOf('    // A newly verified upload can insert');
+  const ending = home.indexOf('    scrollObserver?.disconnect();', beginning);
+  const restoration = home.slice(home.indexOf('    const anchorCard ='), home.indexOf('    updatePagination();', home.indexOf('    const anchorCard =')));
+  const makeCard = (videoId, top) => ({
+    dataset: { videoId }, getBoundingClientRect: () => ({ top, bottom: top + 200 })
+  });
+  const oldGrid = { isConnected: true, children: [makeCard('gone', -80), makeCard('visible', -80)],
+    getBoundingClientRect: () => ({ top: -500 }) };
+  const newGrid = { children: [makeCard('new', -80), makeCard('different', 120), makeCard('visible', 320)] };
+  const offsets = [];
+  runInNewContext(home.slice(beginning, ending) + '\ngridElement = newGrid;\n' + restoration, {
+    settings: { mode: 'recent' }, visibleCount: 12, gridElement: oldGrid, newGrid,
+    recommendations: ['new','different','visible'].map(id => ({ id })),
+    window: { innerHeight: 600, scrollBy: ({top}) => offsets.push(top) }
+  });
+  assert.deepEqual(offsets, [400]);
 });

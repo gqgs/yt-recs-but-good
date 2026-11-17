@@ -1,4 +1,4 @@
-import { relativeAgeDays, rankVideos, recentFeedPage } from './lib/recommender.js';
+import { relativeAgeDays, rankVideos, recentFeedPage, createRecommendationCache } from './lib/recommender.js';
 import { formatMetadataLine } from './lib/video-metadata.js';
 import { isKnownLongForm } from './lib/video-duration.js';
 import { fetchLikedVideos, fetchSubscriptions, fetchUploads } from './lib/api-sync.js';
@@ -23,6 +23,7 @@ const MAX_SHORTS_PROBES_PER_WINDOW = 300;
 const PAUSED_KEY = 'yt-recs-collection-paused-v1';
 const MAX_ITEMS = 4000;
 const MAX_EVENTS = 1500;
+const cachedRankVideos = createRecommendationCache();
 const clean = (value, length = 200) => String(value || '').trim().slice(0, length);
 const validId = id => typeof id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(id);
 const empty = () => ({ items: {}, channels: {}, events: [], visitedIds: {} });
@@ -733,7 +734,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         Math.min(4000, Math.max(100, Math.floor(requestedWindow))) : 100;
       const feed = settings.mode === 'recent'
         ? recentFeedPage(state.items, { ...settings, limit: recentWindow })
-        : { recommendations: rankVideos(state.items, settings),
+        : { recommendations: cachedRankVideos(state.items, settings),
             totalEligible: null, hasMore: false };
       return { recommendations: feed.recommendations.map(video => ({
         ...video, metadataLine: formatMetadataLine(video)

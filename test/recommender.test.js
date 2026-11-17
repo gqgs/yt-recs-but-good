@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenize, cosine, preferenceProfile, relativeAgeDays, rankVideos, validVideoTitle, effectivePublishedAt, isConfirmedShort, recentFeedPage, eligibleForRecommendations } from '../lib/recommender.js';
+import { tokenize, cosine, preferenceProfile, relativeAgeDays, rankVideos, validVideoTitle, effectivePublishedAt, isConfirmedShort, recentFeedPage, eligibleForRecommendations, createRecommendationCache } from '../lib/recommender.js';
 import { THUMBNAIL_CLASSIFIER_SOURCE } from '../lib/thumbnail-classifier.js';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
@@ -312,4 +312,58 @@ test('Recent eligible count excludes watched and confirmed Shorts but includes u
   const page = recentFeedPage(records, { mode: 'recent' }, NOW);
   assert.equal(page.totalEligible, 2);
   assert.deepEqual(page.recommendations.map(v => v.id), ['normal', 'uncertain']);
+});
+
+test('rank cache avoids recomputation for fresh metadata and invalidates actual ranking changes', () => {
+  let calls = 0;
+  const read = createRecommendationCache({ rank(items, options, now) {
+    calls++;
+    return rankVideos(items, options, now);
+  } });
+  const opts = { mode: 'personalized', limit: 100, discoveryOnly: false, hideShorts: true };
+  const first = video('first', 'Topology and connected surfaces', { durationSeconds: 210 });
+  const second = video('second', 'Scenic viewpoint', { durationSeconds: 240 });
+  const state = { first, second };
+  const a = read(state, opts, NOW);
+  assert.deepEqual(a, rankVideos(state, opts, NOW));
+  const enriched = structuredClone(state);
+  enriched.first.viewCount = 100;
+  enriched.first.durationSeconds = 400;
+  enriched.first.shortsProbedAt = NOW;
+  const b = read(enriched, opts, NOW + 1);
+  assert.equal(calls, 1);
+  assert.equal(b.find(v => v.id === 'first').viewCount, 100);
+  assert.equal(b.find(v => v.id === 'first').durationSeconds, 400);
+  const seen = structuredClone(enriched);
+  seen.first.visitedAt = NOW;
+  assert.deepEqual(read(seen, opts, NOW + 2), rankVideos(seen, opts, NOW + 2));
+  assert.equal(calls, 2);
+  assert.deepEqual(read(seen, { ...opts, showSeen: true }, NOW + 3),
+    rankVideos(seen, { ...opts, showSeen: true }, NOW + 3));
+  assert.equal(calls, 3);
+  read(seen, { ...opts, showSeen: true }, NOW + 5003);
+  assert.equal(calls, 4);
+  read(seen, { ...opts, showSeen: true }, NOW - 1);
+  assert.equal(calls, 5);
+});
+
+test('newly confirmed Shorts and long-form overrides invalidate a cached ranking', () => {
+  const read = createRecommendationCache();
+  const opts = { mode: 'explore', discoveryOnly: false, hideShorts: true };
+  const state = { a: video('a', 'Portrait candidate', { durationSeconds: 35 }) };
+  assert.equal(read(state, opts, NOW).length, 1);
+  state.a.shortsFormat = 'portrait';
+  state.a.shortsProbeSource = THUMBNAIL_CLASSIFIER_SOURCE;
+  assert.equal(read(state, opts, NOW + 1).length, 0);
+  state.a.durationSeconds = 270;
+  assert.equal(read(state, opts, NOW + 2).length, 1);
+});
+
+test('rank cache preserves records under differing storage keys and ambiguous duplicate IDs', () => {
+  const read = createRecommendationCache();
+  const opts = { mode: 'explore', discoveryOnly: false };
+  const differentKey = { legacy: video('video-id', 'Distinct title') };
+  assert.deepEqual(read(differentKey, opts, NOW), rankVideos(differentKey, opts, NOW));
+  differentKey.duplicate = video('video-id', 'Another distinct title');
+  assert.deepEqual(read(differentKey, opts, NOW), rankVideos(differentKey, opts, NOW));
 });
