@@ -55,8 +55,8 @@ shortlist and display **End of shortlist** when it is exhausted.
 Recent** is smaller after source, Shorts, and other filters. Neither count means
 all videos are already classified or rendered. Format checks run lazily in
 batches; automatic window expansion pauses while checks are pending, but the
-explicit Load control remains available. Recent holds back older videos behind
-unclassified newer ones to preserve chronology.
+explicit Load control remains available. Recent shows eligible, verified
+videos immediately and inserts newly verified uploads in date order.
 
 ## Shorts and duration
 

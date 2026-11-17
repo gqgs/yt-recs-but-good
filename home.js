@@ -232,6 +232,7 @@
 
   function card(video) {
     const el = node('article', 'ytrbg-card');
+    el.dataset.videoId = video.id;
     const anchor = link('', video.url, 'ytrbg-thumbnail');
     anchor.setAttribute('aria-label', 'Watch ' + video.title);
     const img = node('img');
@@ -342,7 +343,7 @@
     updatePagination();
   }
   function render({ recommendations, counts, paused = false, refresh = {},
-    detailStatus = {}, pendingFormats = [], heldBack = 0,
+    detailStatus = {}, pendingFormats = [],
     recentTotal: totalEligible = null, recentHasMore: moreRecent = false }) {
     if (!ensureRoot() || !enabled) return;
     clearTimeout(staleStatusTimer);
@@ -359,6 +360,19 @@
         }, Math.max(500, remaining + 500));
       }
     }
+    // A newly verified upload can insert above the reader. When scrolled
+    // into Recent, hold the first visible surviving card in place.
+    let anchor = null;
+    if (settings.mode === 'recent' && visibleCount && gridElement?.isConnected &&
+        gridElement.getBoundingClientRect().top < 0) {
+      const readyIndex = new Map(recommendations.map((video, index) => [video.id, index]));
+      for (const el of gridElement.children) {
+        const index = readyIndex.get(el.dataset.videoId);
+        if (index === undefined) continue;
+        const { top, bottom } = el.getBoundingClientRect();
+        if (bottom > 0 && top < window.innerHeight) { anchor = { index, top }; break; }
+      }
+    }
     scrollObserver?.disconnect();
     scrollObserver = null;
     gridElement = null;
@@ -370,7 +384,7 @@
     pendingFormatCount = pendingFormats.length;
     const checkingPaused = pendingFormatCount && Date.now() < formatProbeCooldownUntil;
     const targetCount = Math.min(
-      Math.max(PAGE_SIZE, visibleCount), rankedVideos.length);
+      Math.max(PAGE_SIZE, visibleCount, (anchor?.index ?? -1) + 1), rankedVideos.length);
     visibleCount = 0;
     const children = [makeHeader()];
     const toolbar = node('div', 'ytrbg-toolbar');
@@ -407,8 +421,7 @@
       (settings.mode === 'recent' ? recentTotal + ' eligible in Recent · ' : '') +
       (outsideWindow ? outsideWindow + ' outside loaded window · ' : '') +
       (settings.discoveryOnly !== false ? 'Discovery sources only' : 'All sources') +
-      (pendingFormatCount ? ' · ' + pendingFormatCount + ' checking format in current window' : '') +
-      (heldBack ? ' · ' + heldBack + ' older uploads awaiting newer checks' : '')));
+      (pendingFormatCount ? ' · ' + pendingFormatCount + ' checking format in current window' : '')));
     children.push(toolbar);
     if (!recommendations.length) {
       const empty = node('section', 'ytrbg-empty');
@@ -466,6 +479,11 @@
     // Preserve the number of visible cards when feedback or candidates change.
     // This avoids jumping back to the first page after every local write.
     while (visibleCount < targetCount) appendPage();
+    const anchorCard = anchor && gridElement.children[anchor.index];
+    if (anchorCard) {
+      const offset = anchorCard.getBoundingClientRect().top - anchor.top;
+      if (Math.abs(offset) >= 1) window.scrollBy({ top: offset, behavior: 'instant' });
+    }
     updatePagination();
     const sentinel = root.querySelector('.ytrbg-scroll-sentinel');
     if (sentinel && (visibleCount < rankedVideos.length ||
@@ -494,12 +512,11 @@
         recentLimit: settings.mode === 'recent' ? recentWindow : undefined });
       if (id !== requestId || !enabled || !onHome()) return;
       currentShortsProbeSource = response.result.shortsProbeSource || null;
-      const { ready, pending, heldBack } = globalThis.YTRBGShortsVisibility.splitCandidates(
+      const { ready, pending } = globalThis.YTRBGShortsVisibility.splitCandidates(
         response.result.recommendations, settings.hideShorts !== false,
-        Date.now(), settings.mode, currentShortsProbeSource);
+        Date.now(), currentShortsProbeSource);
       detailsCandidateIds = response.result.detailCandidates || [];
-      render({ ...response.result, recommendations: ready, pendingFormats: pending,
-        heldBack });
+      render({ ...response.result, recommendations: ready, pendingFormats: pending });
       // Enrich cached API-only items, including portrait videos currently
       // withheld by the Shorts heuristic but actually long-form.
       requestVideoDetails(false);

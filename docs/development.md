@@ -73,7 +73,8 @@ features rather than oEmbed or portrait CDN variants:
 3. Grayscale edge and texture features detect paired boundaries near one-third
    and two-thirds width, a narrow central panel, and darker/less textured sides.
 4. A match is hidden; normal or inconclusive results are eligible. Home holds
-   unverified cards until checks finish, preserving chronology in Recent.
+   unverified cards until checks finish. Recent preserves chronological order
+   among the cards it can already show.
 
 Checks run in batches of up to 12 candidates with four concurrent requests,
 capped at 300 per 10 minutes. Each check needs at most one thumbnail request,
