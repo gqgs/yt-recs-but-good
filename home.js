@@ -17,6 +17,7 @@
   let visibleCount = 0;
   let rankedVideos = [];
   let gridElement = null;
+  const cardUpdates = new WeakMap();
   let loadButton = null;
   let pageStatus = null;
   let scrollObserver = null;
@@ -233,58 +234,105 @@
   function card(video) {
     const el = node('article', 'ytrbg-card');
     el.dataset.videoId = video.id;
-    const anchor = link('', video.url, 'ytrbg-thumbnail');
-    anchor.setAttribute('aria-label', 'Watch ' + video.title);
+    const anchor = node('a', 'ytrbg-thumbnail');
     const img = node('img');
-    img.src = video.thumbnail;
     img.alt = '';
     img.loading = 'lazy';
     img.referrerPolicy = 'no-referrer';
+    const duration = node('span', 'ytrbg-duration');
     anchor.append(img);
-    const durationLabel = globalThis.YTRBGShortsVisibility.formatDuration(video.durationSeconds);
-    if (durationLabel) {
-      const duration = node('span', 'ytrbg-duration', durationLabel);
-      duration.setAttribute('aria-label', 'Duration ' + durationLabel);
-      anchor.append(duration);
-    }
-    const title = link(video.title, video.url, 'ytrbg-title');
-    title.title = video.title;
-    const channelUrl = globalThis.YTRBGChannelLink.channelUrl(video.channelId);
-    const channel = video.channel && channelUrl
-      ? link(video.channel, channelUrl, 'ytrbg-channel')
-      : node('div', 'ytrbg-channel', video.channel || 'Channel unavailable');
-    const meta = node('div', 'ytrbg-meta', video.metadataLine || '');
+    const title = node('a', 'ytrbg-title');
+    let channel = node('div', 'ytrbg-channel');
+    const meta = node('div', 'ytrbg-meta');
     const explain = node('details', 'ytrbg-why');
     const summary = node('summary', '', 'Why this video?');
-    const explanation = node('p', '', video.reason || 'Selected by your local recommendation policy.');
-    explain.append(summary, explanation);
-    const check = video.shortsProbeDiagnostic;
-    const formatStatus = node('p', 'ytrbg-format-status',
-      check ? 'Format check: ' + (video.shortsFormat || 'unknown') +
+    const explanation = node('p');
+    const formatStatus = node('p', 'ytrbg-format-status');
+    let currentVideo;
+    let markedShort;
+    const shortButton = button('', 'ytrbg-short-label', () => {
+      mark(currentVideo, 'MARK_SHORT', !markedShort).catch(showError);
+    });
+    explain.append(summary, explanation, formatStatus, shortButton);
+    const actions = node('div', 'ytrbg-actions');
+    actions.append(button('Seen', '', () => {
+      mark(currentVideo, 'MARK_SEEN').catch(showError);
+    }), button('Not for me', '', () => {
+      mark(currentVideo, 'FEEDBACK', 'less').catch(showError);
+    }));
+    el.append(anchor, title, channel, meta, actions, explain);
+
+    const setText = (el, text) => {
+      if (el.textContent !== text) el.textContent = text;
+    };
+    const setAttr = (el, name, value) => {
+      if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+    };
+    function update(video) {
+      currentVideo = video;
+      setAttr(anchor, 'href', video.url);
+      setAttr(anchor, 'aria-label', 'Watch ' + video.title);
+      // Do not touch a previously assigned src when an unrelated storage
+      // event or metadata refresh arrives, even for a lazy image.
+      if (video.thumbnail) setAttr(img, 'src', video.thumbnail);
+      else if (img.hasAttribute('src')) img.removeAttribute('src');
+      const durationLabel = globalThis.YTRBGShortsVisibility.formatDuration(video.durationSeconds);
+      if (durationLabel) {
+        setText(duration, durationLabel);
+        setAttr(duration, 'aria-label', 'Duration ' + durationLabel);
+        if (!duration.parentElement) anchor.append(duration);
+      } else if (duration.parentElement) duration.remove();
+      setText(title, video.title);
+      setAttr(title, 'href', video.url);
+      setAttr(title, 'title', video.title);
+      const channelUrl = video.channel && globalThis.YTRBGChannelLink.channelUrl(video.channelId);
+      const tag = channelUrl ? 'A' : 'DIV';
+      if (channel.tagName !== tag) {
+        const replacement = node(tag.toLowerCase(), 'ytrbg-channel');
+        channel.replaceWith(replacement);
+        channel = replacement;
+      }
+      setText(channel, video.channel || 'Channel unavailable');
+      if (channelUrl) setAttr(channel, 'href', channelUrl);
+      setText(meta, video.metadataLine || '');
+      setText(explanation, video.reason || 'Selected by your local recommendation policy.');
+      const check = video.shortsProbeDiagnostic;
+      setText(formatStatus, check ? 'Format check: ' + (video.shortsFormat || 'unknown') +
         ' · ' + check.variant + (check.status ? ' · HTTP ' + check.status : '') +
         (check.score !== null && check.score !== undefined ? ' · score ' + check.score : '') +
         (check.reason && check.reason !== 'ok' ? ' · ' + check.reason : '') :
         'Format check: not yet completed');
-    explain.append(formatStatus);
-    // Manual format correction is not a dislike and does not affect the
-    // preference profile. It can be reversed after toggling Hide Shorts off.
-    const markedShort = video.shortOverride === undefined
-      ? Boolean(video.isShort ||
-        (video.shortsFormat === 'portrait' &&
-         currentShortsProbeSource && video.shortsProbeSource === currentShortsProbeSource))
-      : video.shortOverride;
-    explain.append(button(markedShort ? 'Not a Short' : 'Mark as Short',
-      'ytrbg-short-label', () => {
-        mark(video, 'MARK_SHORT', !markedShort).catch(showError);
-      }));
-    const actions = node('div', 'ytrbg-actions');
-    actions.append(button('Seen', '', () => {
-      mark(video, 'MARK_SEEN').catch(showError);
-    }), button('Not for me', '', () => {
-      mark(video, 'FEEDBACK', 'less').catch(showError);
-    }));
-    el.append(anchor, title, channel, meta, actions, explain);
+      // A manual format correction is not a dislike.
+      markedShort = video.shortOverride === undefined
+        ? Boolean(video.isShort ||
+          (video.shortsFormat === 'portrait' &&
+           currentShortsProbeSource && video.shortsProbeSource === currentShortsProbeSource))
+        : video.shortOverride;
+      setText(shortButton, markedShort ? 'Not a Short' : 'Mark as Short');
+    }
+    cardUpdates.set(el, update);
+    update(video);
     return el;
+  }
+
+  function reconcileCards(videos) {
+    const existing = new Map([...gridElement.children].map(el => [el.dataset.videoId, el]));
+    const desired = new Set(videos.map(video => video.id));
+    for (const [id, el] of existing) {
+      if (!desired.has(id)) el.remove();
+    }
+    for (const [index, video] of videos.entries()) {
+      const retained = existing.get(video.id);
+      const el = retained || card(video);
+      if (retained) cardUpdates.get(retained)(video);
+      const before = gridElement.children[index] || null;
+      if (el === before) continue;
+      // moveBefore keeps state (including focus/image loading) when rankings
+      // change. Older browsers still keep the original img and src.
+      if (retained && typeof gridElement.moveBefore === 'function')
+        gridElement.moveBefore(el, before);
+      else gridElement.insertBefore(el, before);
+    }
   }
 
   function updatePagination() {
@@ -375,7 +423,6 @@
     }
     scrollObserver?.disconnect();
     scrollObserver = null;
-    gridElement = null;
     rankedVideos = recommendations;
     recentTotal = Number.isInteger(totalEligible) ? totalEligible : 0;
     recentHasMore = settings.mode === 'recent' && moreRecent;
@@ -385,7 +432,6 @@
     const checkingPaused = pendingFormatCount && Date.now() < formatProbeCooldownUntil;
     const targetCount = Math.min(
       Math.max(PAGE_SIZE, visibleCount, (anchor?.index ?? -1) + 1), rankedVideos.length);
-    visibleCount = 0;
     const children = [makeHeader()];
     const toolbar = node('div', 'ytrbg-toolbar');
     const controls = node('div', 'ytrbg-controls');
@@ -458,8 +504,7 @@
       empty.append(actions);
       children.push(empty);
     } else {
-      gridElement = node('div', 'ytrbg-grid');
-      children.push(gridElement);
+      gridElement ??= node('div', 'ytrbg-grid');
       const pagination = node('div', 'ytrbg-pagination');
       pageStatus = node('p', 'ytrbg-page-status');
       loadButton = button('Load more recommendations', 'ytrbg-load-more', appendPage);
@@ -471,14 +516,26 @@
         'Recommendations are local. Like videos on YouTube to teach your preferences; "Not for me" here trains only this extension.' +
         (pendingFormatCount ? ' ' + pendingFormatCount + ' candidate formats are awaiting checks.' : '')));
     }
-    root.replaceChildren(...children);
+    if (recommendations.length) {
+      // Never detach the grid on status or storage changes. Keep the keyed
+      // cards mounted while rebuilding only the small surrounding controls.
+      for (const el of [...root.children]) {
+        if (el !== gridElement) el.remove();
+      }
+      if (!gridElement.isConnected) root.append(gridElement);
+      root.prepend(...children.slice(0, 2));
+      root.append(...children.slice(2));
+      reconcileCards(rankedVideos.slice(0, targetCount));
+      visibleCount = targetCount;
+    } else {
+      root.replaceChildren(...children);
+      gridElement = null;
+      visibleCount = 0;
+    }
     // Run the checks only AFTER the page has been built without provisional
     // Shorts. Completing a check saves the format and refreshes this feed.
     probeFormats(pendingFormats);
     if (!recommendations.length) return;
-    // Preserve the number of visible cards when feedback or candidates change.
-    // This avoids jumping back to the first page after every local write.
-    while (visibleCount < targetCount) appendPage();
     const anchorCard = anchor && gridElement.children[anchor.index];
     if (anchorCard) {
       const offset = anchorCard.getBoundingClientRect().top - anchor.top;
