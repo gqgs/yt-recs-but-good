@@ -49,6 +49,7 @@ class Element {
     this.tagName = tagName.toUpperCase();
     this.children = [];
     this.attributes = {};
+    this.srcUpdates = 0;
     this.dataset = {};
     this.listeners = {};
     this.textContent = '';
@@ -59,13 +60,39 @@ class Element {
       this.children.push(child);
     }
   }
-  setAttribute(name, value) { this.attributes[name] = value; }
+  setAttribute(name, value) {
+    if (name === 'src') this.srcUpdates++;
+    this.attributes[name] = value;
+  }
+  insertBefore(el, before) {
+    el.remove();
+    const index = before ? this.children.indexOf(before) : this.children.length;
+    this.children.splice(index, 0, el);
+    el.parentElement = this;
+  }
+  remove() {
+    if (!this.parentElement) return;
+    const siblings = this.parentElement.children;
+    siblings.splice(siblings.indexOf(this), 1);
+    this.parentElement = null;
+  }
+  getAttribute(name) { return this.attributes[name] ?? null; }
+  hasAttribute(name) { return Object.hasOwn(this.attributes, name); }
+  get href() { return this.attributes.href; }
+  set href(value) { this.setAttribute('href', value); }
+  replaceWith(node) {
+    const parent = this.parentElement;
+    parent.children[parent.children.indexOf(this)] = node;
+    node.parentElement = parent;
+    this.parentElement = null;
+  }
   addEventListener(name, callback) { this.listeners[name] = callback; }
 }
 function renderers() {
   const opened = [];
+  const gridElement = new Element('div');
   const context = {
-    URL, formatMetadataLine,
+    URL, formatMetadataLine, gridElement,
     document: { createElement: tag => new Element(tag) },
     chrome: { tabs: { create: value => opened.push(value) } },
     YTRBGShortsVisibility: { formatDuration: () => '13:38' }
@@ -74,12 +101,13 @@ function renderers() {
   const home = read('home.js');
   const homeHelpers = home.slice(home.indexOf('  const node ='), home.indexOf('  function send('));
   const homeCard = home.slice(home.indexOf('  function card('), home.indexOf('  function updatePagination('));
-  runInNewContext('(() => { let currentShortsProbeSource = null;\n' + homeHelpers + homeCard +
-    '\nglobalThis.homeCard = card; })();', context);
+  runInNewContext('(() => { let currentShortsProbeSource = null; const cardUpdates = new WeakMap();\n' + homeHelpers + homeCard +
+    '\nglobalThis.homeCard = card; globalThis.reconcile = reconcileCards; })();', context);
   const popup = read('popup.js');
   runInNewContext(popup.slice(0, popup.indexOf('function renderCandidateRefreshStatus('))
     .replace(/^import .*;$/m, '') + '\nglobalThis.popupCard = renderVideo;', context);
-  return { homeCard: context.homeCard, popupCard: context.popupCard, opened };
+  return { homeCard: context.homeCard, popupCard: context.popupCard, opened,
+    reconcile: context.reconcile, gridElement };
 }
 function find(element, className) {
   if (element.className === className) return element;
@@ -157,4 +185,114 @@ test('shared helper loads before both card renderers and links have hover/focus 
   assert.ok(popup.indexOf('src="lib/channel-link.js"') < popup.indexOf('src="popup.js"'));
   assert.match(read('home.css'), /a\.ytrbg-channel:hover.*a\.ytrbg-channel:focus-visible/);
   assert.match(read('popup.css'), /a\.channel-name:hover.*a\.channel-name:focus-visible/);
+});
+
+test('Home storage progress and upload status refreshes keep thumbnails mounted', async () => {
+  class HomeElement extends Element {
+    get isConnected() { return this.tagName === 'HTML' || Boolean(this.parentElement?.isConnected); }
+    get firstChild() { return this.children[0] || null; }
+    prepend(...children) {
+      const before = this.firstChild;
+      for (const child of children) this.insertBefore(child, before);
+    }
+    replaceChildren(...children) {
+      for (const child of [...this.children]) child.remove();
+      this.append(...children);
+    }
+    querySelector(selector) { return find(this, selector.slice(1)) || null; }
+  }
+  const html = new HomeElement('html');
+  const browse = new HomeElement('ytd-browse');
+  html.append(browse);
+  html.classList = { toggle() {}, remove() {} };
+
+  const timers = new Map();
+  let nextTimer = 0;
+  const flush = async () => {
+    for (const [key, callback] of timers) {
+      timers.delete(key);
+      callback();
+    }
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  };
+  let onChange;
+  let response = {
+    recommendations: [{ ...video, durationSeconds: 450, thumbnail: 'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg' }],
+    counts: { likes: 1, unseen: 1 }, refresh: { label: 'Initial status' }
+  };
+  const context = {
+    URL,
+    document: {
+      documentElement: html, createElement: tag => new HomeElement(tag),
+      querySelectorAll: () => [browse], addEventListener() {}
+    },
+    window: { addEventListener() {} },
+    location: { pathname: '/' },
+    MutationObserver: class { observe() {} },
+    setTimeout: callback => { timers.set(++nextTimer, callback); return nextTimer; },
+    clearTimeout: timer => timers.delete(timer),
+    chrome: {
+      runtime: { sendMessage: async msg => ({
+        ok: true, result: msg.type === 'GET_RECOMMENDATIONS' ? response : {}
+      }) },
+      storage: {
+        local: { get: async () => ({}) },
+        onChanged: { addListener: listener => { onChange = listener; } }
+      }
+    }
+  };
+  runInNewContext(helper, context);
+  runInNewContext(read('lib/shorts-visibility.js'), context);
+  runInNewContext(read('home.js'), context);
+  await flush();
+  const root = browse.firstChild;
+  const grid = find(root, 'ytrbg-grid');
+  const card = grid.firstChild;
+  const image = find(card, 'ytrbg-thumbnail').firstChild;
+  for (let tick = 1; tick <= 3; tick++) {
+    response = {
+      ...response,
+      recommendations: [{ ...response.recommendations[0], metadataLine: tick + ' views' }],
+      refresh: { label: 'Updated ' + tick }
+    };
+    onChange({
+      'yt-recs-state-v1': { newValue: { progressAt: tick * 15_000 } },
+      'yt-recs-candidate-refresh-v1': { newValue: response.refresh }
+    }, 'local');
+    await flush();
+    assert.equal(find(root, 'ytrbg-grid'), grid);
+    assert.equal(grid.firstChild, card);
+    assert.equal(find(card, 'ytrbg-thumbnail').firstChild, image);
+    assert.equal(image.srcUpdates, 1);
+    assert.equal(find(card, 'ytrbg-meta').textContent, tick + ' views');
+    assert.equal(find(root, 'ytrbg-refresh-status').textContent, 'Updated ' + tick);
+  }
+});
+
+test('Home refresh keeps surviving image nodes and only rewrites actual thumbnail URL changes', () => {
+  const { reconcile, gridElement } = renderers();
+  const first = { ...video, thumbnail: 'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg' };
+  const second = { ...first, id: 'bcdefghijkl' };
+  reconcile([first, second]);
+
+  const [cardA, cardB] = gridElement.children;
+  const imageA = find(cardA, 'ytrbg-thumbnail').children[0];
+  const imageB = find(cardB, 'ytrbg-thumbnail').children[0];
+  find(cardA, 'ytrbg-why').open = true;
+  reconcile([{ ...first, metadataLine: '5K views' }, { ...second }]);
+  assert.equal(gridElement.children[0], cardA);
+  assert.equal(find(cardA, 'ytrbg-meta').textContent, '5K views');
+  assert.equal(find(cardA, 'ytrbg-why').open, true);
+  assert.equal(find(cardA, 'ytrbg-thumbnail').children[0], imageA);
+  assert.equal(imageA.srcUpdates, 1);
+
+  reconcile([{ ...second, thumbnail: second.thumbnail + '?updated=1' }, first]);
+  assert.deepEqual(gridElement.children, [cardB, cardA]);
+  assert.equal(find(cardB, 'ytrbg-thumbnail').children[0], imageB);
+  assert.equal(imageB.srcUpdates, 2);
+  assert.equal(imageA.srcUpdates, 1);
+
+  reconcile([first]);
+  assert.deepEqual(gridElement.children, [cardA]);
+  assert.equal(imageA.srcUpdates, 1);
 });
